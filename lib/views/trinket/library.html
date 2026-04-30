@@ -25,6 +25,8 @@
   {% for script in config.app.ngapps.library %}
     <script src="{{ script | cachePrefix }}"></script>
   {% endfor %}
+{# SECURITY: server-controlled asset URL via component() filter — Class A known-safe context per AAP §0.5.2 Strategy H / R8 / OWASP A03 #}
+{# SECURITY: component() generates <script> tags from server-side config.app.components; NOT user input #}
 {{ component('speakingurl', 'speakingurl.min.js') | safe }}
 <script type="text/javascript">
 var selectText = TrinketIO.import('utils.selectText');
