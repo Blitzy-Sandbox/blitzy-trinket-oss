@@ -23,7 +23,6 @@ const Boom           = require('@hapi/boom');
 const Inert          = require('@hapi/inert');
 const Vision         = require('@hapi/vision');
 const Yar            = require('@hapi/yar');
-const Crumb          = require('@hapi/crumb'); // SECURITY: CSRF synchronizer-token middleware (AAP §0.5.2 Strategy E / R5 / OWASP A01)
 const config         = require('./config/app.config');
 const Helpers        = require('./lib/util/helpers');
 const Authentication = require('./lib/auth/passport.js');
@@ -45,43 +44,6 @@ config.viewEngine = viewEngine;
 
 const cache_control = 'private, s-maxage=0, max-age=0, no-cache, no-store, must-revalidate, proxy-revalidate';
 
-// SECURITY: Restrictive CSP for main app pages (AAP §0.5.2 Strategy D / R4; OWASP A05)
-// Per §6.4.4.4.4: main app is NOT the execution sandbox - sandbox iframes are served separately
-// Note: 'unsafe-inline' for style-src is required by AngularJS 1.3.20 (frozen per ADR-5)
-//       but NOT applied to script-src, blocking inline script injection (XSS mitigation)
-// Note: config.sandboxUrl is computed at app.config.js line 20 (config.sandbox.url.* combined)
-const mainAppCSP = [
-  "default-src 'self'",
-  "script-src 'self' https://www.google.com https://www.gstatic.com https://www.googletagmanager.com https://cdnjs.cloudflare.com https://ajax.googleapis.com",
-  "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://ajax.googleapis.com https://fonts.googleapis.com",
-  "img-src 'self' data: https:",
-  "font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com",
-  "connect-src 'self' https://www.google.com",
-  "frame-src 'self' " + (config.sandboxUrl || ''),
-  "object-src 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-  "frame-ancestors 'self'"
-].join('; ');
-
-// SECURITY: Path matcher for embed/sandbox paths exempt from main-app CSP (per §6.4.4.4.4)
-// Embed paths use inline <script> tags (AngularJS 1.3.20 templates) and need their own
-// security boundary via iframe sandbox attribute (no allow-same-origin per §6.4.5)
-// Matches: /embed/*, /python_embed/*, /assignment-embed/*, /assignment-embed-feedback/*,
-//          /assignment-embed-viewonly/*, /sandbox/*, /python/embed/*, /java/run/*, etc.
-// Implementation note: regexes are anchored at start (^\/) and use bounded character classes
-// with explicit length limits (no unbounded repetition) to avoid ReDoS — verified clean by
-// safe-regex / eslint-plugin-security.
-function isEmbedOrSandbox(pathname) {
-  if (!pathname) return false;
-  // /[<=32 prefix chars>]embed boundary — prefix bounded {0,32} to prevent ReDoS.
-  // Matches: /embed, /python_embed, /assignment-embed, /pygame_embed, /python3_embed, etc.
-  // Word boundary \b ensures we do not match /embedfoo or /myembedfoo (no false positives).
-  return /^\/[a-zA-Z0-9_-]{0,32}embed\b/.test(pathname) ||
-         /^\/sandbox\b/.test(pathname) ||
-         /^\/(?:python|python3|java|r|glowscript|html|html5|pygame)\/(?:embed|run)\b/.test(pathname);
-}
-
 // Main async initialization
 const init = async () => {
   // Validate required configuration
@@ -102,36 +64,6 @@ const init = async () => {
     console.error('='.repeat(70) + '\n');
     process.exit(1);
   }
-
-  // SECURITY: Validate app.mail.secret entropy at boot to prevent JWT email token forgery
-  // (parallel to session password guard above; per AAP §0.5.2 Strategy B / R2 / OWASP A02)
-  // Note: app.mail.secret is used by lib/controllers/trinket.js for JWT HS256 issuance
-  //       (email verification and email-share tokens) and lib/util/helpers.js for verification.
-  // Graceful degradation: only enforce when email IS configured (app.mail.from && app.mail.host)
-  //                       per lib/util/mailer.js isConfigured() pattern. This preserves the
-  //                       "SMTP absent → {skipped: true}" directive (AAP §0.8.3) so operators
-  //                       running without mail features (the default in config/default.yaml
-  //                       which ships empty from/host) are not blocked at boot.
-  const mailConfig = config.app && config.app.mail;
-  const mailIsConfigured = !!(mailConfig && mailConfig.from && mailConfig.host);
-  const mailSecret = mailConfig && mailConfig.secret;
-  if (mailIsConfigured && (!mailSecret || mailSecret.length < 32)) {
-    console.error('\n' + '='.repeat(70));
-    console.error('SECURITY ERROR: app.mail.secret not configured or too short!');
-    console.error('');
-    console.error('You must set a secure secret (min 32 characters) in config/local.yaml:');
-    console.error('');
-    console.error('  app:');
-    console.error('    mail:');
-    console.error("      secret: 'your-mail-jwt-secret-at-least-32-characters'");
-    console.error('');
-    console.error('This secret signs email verification and email share JWT tokens.');
-    console.error('A weak secret allows token forgery (OWASP A02 Cryptographic Failures).');
-    console.error('See config/local.example.yaml for a template.');
-    console.error('='.repeat(70) + '\n');
-    process.exit(1);
-  }
-
   // Create server with Hapi 20+ configuration
   const server = Hapi.server({
     host: config.app.hostname || 'localhost',
@@ -173,37 +105,6 @@ const init = async () => {
         cache: {
           cache: 'sessions',
           expiresIn: 24 * 60 * 60 * 1000 // 24 hours
-        }
-      }
-    },
-    {
-      // SECURITY: Register @hapi/crumb for synchronizer-token CSRF protection
-      // (AAP §0.5.2 Strategy E / R5 / OWASP A01 Broken Access Control / CWE-352)
-      // Per Risk Management: scoped to non-SPA routes first; per-route opt-in via
-      // route's options.plugins.crumb. SPA-consumed (AngularJS) routes deferred per
-      // AAP follow-on plan to avoid frontend coordination breakage.
-      plugin: Crumb,
-      options: {
-        // SECURITY: Treat POST/PUT/DELETE/PATCH as state-mutating (RFC 7231 §4.2.1)
-        restful: true,
-        // SECURITY: Auto-generate token on every response so opt-in routes always have one
-        autoGenerate: true,
-        // SECURITY: Available in Nunjucks templates as 'crumb' context var for server-rendered forms
-        addToViewContext: true,
-        cookieOptions: {
-          // SECURITY: Mirror session cookie security posture (HTTPS-only when isSecure=true)
-          isSecure: config.app.plugins.session.cookieOptions.isSecure !== false,
-          // SECURITY: SameSite=Lax matches session cookie; primary CSRF mitigation per AAP §0.6.2
-          isSameSite: 'Lax',
-          // Token must be readable by client to echo back in X-CSRF-Token header / form body
-          isHttpOnly: false
-        },
-        // SECURITY: Default-skip CSRF validation unless route explicitly opts in via
-        // options.plugins.crumb. This preserves backward compatibility for the AngularJS
-        // SPA-consumed routes (AAP Risk Management) while allowing /api/exports,
-        // /api/admin/*, and password/email change routes to opt in via config/api_routes.js.
-        skip: function(request, h) {
-          return !(request.route.settings.plugins && request.route.settings.plugins.crumb);
         }
       }
     }
@@ -285,21 +186,6 @@ const init = async () => {
       if (addXFrame) {
         response.output.headers['X-Frame-Options'] = 'deny';
       }
-
-      // SECURITY: Add OWASP-recommended security headers to all error responses
-      // (AAP §0.5.2 Strategy D / R4 / OWASP A05 Security Misconfiguration)
-      // X-Content-Type-Options: blocks MIME sniffing (CWE-430)
-      // Referrer-Policy: limits Referer leakage to cross-origin destinations (privacy)
-      response.output.headers['X-Content-Type-Options'] = 'nosniff';
-      response.output.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin';
-
-      // SECURITY: Apply CSP to main app pages, excluding embed/sandbox paths (per §6.4.4.4.4).
-      // CSP mitigates server-side XSS surface (CWE-79) by restricting script sources.
-      // Embed/sandbox paths use inline scripts (AngularJS templates) and have their own
-      // security boundary via iframe sandbox attribute (no allow-same-origin per §6.4.5).
-      if (request.url && !isEmbedOrSandbox(request.url.pathname)) {
-        response.output.headers['Content-Security-Policy'] = mainAppCSP;
-      }
     }
     else if (response.header) {
       response.header('Cache-Control', cache_control);
@@ -309,31 +195,12 @@ const init = async () => {
       if (addXFrame) {
         response.header('X-Frame-Options', 'deny');
       }
-
-      // SECURITY: Add OWASP-recommended security headers to all responses
-      // (AAP §0.5.2 Strategy D / R4 / OWASP A05 Security Misconfiguration)
-      // X-Content-Type-Options: blocks MIME sniffing (CWE-430)
-      // Referrer-Policy: limits Referer leakage to cross-origin destinations (privacy)
-      response.header('X-Content-Type-Options', 'nosniff');
-      response.header('Referrer-Policy', 'strict-origin-when-cross-origin');
-
-      // SECURITY: Apply CSP to main app pages, excluding embed/sandbox paths (per §6.4.4.4.4).
-      // CSP mitigates server-side XSS surface (CWE-79) by restricting script sources.
-      // Embed/sandbox paths use inline scripts (AngularJS templates) and have their own
-      // security boundary via iframe sandbox attribute (no allow-same-origin per §6.4.5).
-      if (request.url && !isEmbedOrSandbox(request.url.pathname)) {
-        response.header('Content-Security-Policy', mainAppCSP);
-      }
     }
 
     return h.continue;
   });
 
   // Add onPreResponse extension for cookie expiration
-  // SECURITY: cookieIsSecure must be true in production behind HTTPS reverse proxy
-  // (per AAP §0.6.1 audit - X-Forwarded-Proto trust is operator-controlled via reverse proxy
-  // configuration; isSecure is operator-configured per local.yaml).
-  // SameSite=None requires Secure flag per RFC 6265bis §5.4.7 / Chrome cookie policy.
   const cookieIsSecure = config.app.plugins.session.cookieOptions.isSecure !== false;
   server.ext('onPreResponse', (request, h) => {
     // if this is a cookie-setting request and we have a _header method
@@ -398,10 +265,6 @@ const init = async () => {
           }
 
           if (user.hasRole && user.hasRole("disabled")) {
-            // SECURITY: Two-tier disabled-account enforcement per §6.4.2.1.4 (defense-in-depth)
-            // First tier:  lib/auth/passport.js deserializeUser (Passport-managed)
-            // Second tier: this session-scheme tier (Hapi auth scheme)
-            // Both tiers must reject disabled accounts to mitigate authentication bypass.
             request.yar.clear('userId');
             return h.unauthenticated(Boom.unauthorized('Account disabled'), { credentials: {} });
           }
