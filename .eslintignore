@@ -1,0 +1,228 @@
+# =============================================================================
+# .eslintignore — ESLint Exclusion List for Trinket OSS Security SAST
+# =============================================================================
+# SECURITY: This file scopes the ESLint security plugin to the auditable code
+# surface only. It uses gitignore-style syntax per ESLint convention.
+#
+# SECURITY: ESLint security plugin targets (per AAP §0.5.2 Strategy I / R9):
+#   lib/, config/, serverside/python/manager/, serverside/r/manager/,
+#   serverside/java/manager/, serverside/pygame/manager/
+#
+# SECURITY: Verification command (per AAP §0.10.1):
+#   npx eslint lib/ config/ serverside/python/manager/ serverside/r/manager/ \
+#     serverside/java/manager/ serverside/pygame/manager/ --ext .js --no-fix
+#
+# SECURITY: Maintenance discipline — when adding a new exclusion, prefix the
+# block with a "# SECURITY:" comment that cites the AAP rationale. This file
+# is part of the audit trail and must remain greppable for security review.
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# Phase 1 — Frozen Frontend Exclusions (AAP Frontend Freeze Directive / ADR-5)
+# -----------------------------------------------------------------------------
+# SECURITY: AngularJS 1.3.20 SPA is FROZEN per ADR-5 and AAP §0.1.2 Frontend
+# Freeze Directive: "DO NOT alter the AngularJS 1.3.20 frontend ... note CVEs,
+# assess exploitability in sandboxed context, document findings only."
+# SECURITY: Per AAP §0.4.1 Vendored frontend assets — jQuery 2.2.4, AngularJS
+# 1.3.20, Ace Editor 1.2.6.1rc2, Skulpt fork, Blockly fork, GlowScript fork,
+# Foundation 5.5.3.1, jq-console, CryptoJS AES are all frozen.
+# SECURITY: Excluding public/ from SAST prevents accidental modification and
+# eliminates noise from frozen-by-policy code. CVEs in these assets are
+# tracked in the residual risk register (Deliverable #7), not via ESLint.
+# SECURITY: See AAP §0.9.2 Out of Scope — "AngularJS 1.3.20 SPA migration",
+# "iframe sandbox attribute changes", and §0.7.3 — "public/js/** and
+# public/components/** are frozen — exclude from any tooling".
+public/
+
+# SECURITY: Vendored Skulpt fork (browser-side Python interpreter) — frozen
+# per AAP Frontend Freeze; defense-in-depth excludes the path explicitly even
+# though parent public/ already covers it (intent documentation).
+public/js/skulpt/
+
+# SECURITY: Vendored embed runtime (Skulpt, Blockly, GlowScript forks) hosting
+# the iframe-sandboxed execution surface — frozen per AAP §0.4.1 and protected
+# by the iframe sandbox attribute (no allow-same-origin) per AAP §0.9.2.
+public/js/embed/
+
+# SECURITY: Bower-installed third-party components (jQuery 2.2.4, Foundation
+# 5.5.3.1, Ace Editor, AngularJS modules) — frozen per ADR-5; already in
+# .gitignore at "public/components" and not committed to the repo, but listed
+# here for environments where the vendored bundle has been extracted from the
+# public-components.tgz release artifact.
+public/components/
+
+# SECURITY: Vendored third-party libraries — historically used Bower vendor
+# directory; same freeze rationale as public/components/.
+public/vendor/
+
+# SECURITY: Frontend partials (AngularJS templates) consumed by the frozen
+# SPA — modification is prohibited per AAP Frontend Freeze Directive.
+public/partials/
+
+# SECURITY: Compiled frontend CSS — Vite/Sass build output (per
+# vite.config.mjs); not JavaScript SAST target.
+public/css/
+
+# SECURITY: Static font assets — not JavaScript SAST target.
+public/fonts/
+
+# SECURITY: Static image assets — not JavaScript SAST target.
+public/img/
+
+# SECURITY: Runtime "published" trinket cache directory — gitignored per
+# .gitignore at "public/_published"; user-generated content, not source code.
+public/_published/
+
+# SECURITY: Compiled frontend JavaScript bundle output — not source code.
+public/js/dist/
+
+# SECURITY: SCSS source for Foundation 5 + Trinket theme — Sass language,
+# not a JavaScript SAST target. Compiled by Vite via vite.config.mjs.
+static/
+
+
+# -----------------------------------------------------------------------------
+# Phase 2 — Standard Build Artifacts and Dependencies
+# -----------------------------------------------------------------------------
+# SECURITY: Third-party dependencies are scanned by `npm audit` (per AAP
+# §0.10.1) — not by ESLint. SAST on node_modules/ would produce overwhelming
+# noise from package-internal patterns and is universally excluded from
+# ESLint by convention.
+node_modules/
+
+# SECURITY: Generated lockfiles are not source code — version control discipline
+# preserves them but they are not authored. Same rationale for the rollback
+# baseline snapshot mandated by AAP Risk Management (§0.5.4): "cp
+# package-lock.json package-lock.baseline.json".
+package-lock.json
+package-lock.baseline.json
+serverside/python/manager/package-lock.json
+serverside/r/manager/package-lock.json
+serverside/java/manager/package-lock.json
+serverside/pygame/manager/package-lock.json
+
+# Build outputs and caches — not authored source code
+.cache/
+dist/
+build/
+coverage/
+.nyc_output/
+
+# Vite/Sass compilation artifacts (covered above for public/, but also at root
+# for completeness in case operators relocate output)
+.sass-cache/
+
+# Release artifacts produced by the upstream public-components tarball
+public-components.tgz
+
+# Minified or bundled JavaScript — third-party output, not source
+*.min.js
+*.bundle.js
+
+# Map files (sourcemaps) — generated artifacts
+*.js.map
+
+
+# -----------------------------------------------------------------------------
+# Phase 3 — Test Fixtures and Generated Test Data
+# -----------------------------------------------------------------------------
+# SECURITY: Test fixtures are intentionally crafted artifacts (e.g., malformed
+# inputs, malicious payloads for security regression tests in test/security/);
+# linting them generates false-positive findings on patterns that are
+# deliberately included. Per AAP §0.6.1 — only test/security/* test modules
+# are SAST-scanned; fixture data files are excluded.
+test/data/
+*.fixture.js
+*.fixture.json
+
+
+# -----------------------------------------------------------------------------
+# Phase 4 — Tooling Config Files (per AAP §0.6.1 detailed instructions)
+# -----------------------------------------------------------------------------
+# SECURITY: ESLint configuration itself — meta-config that uses lint-flagging
+# patterns (e.g., property names matching detect-object-injection rules) which
+# would create circular noise. The configuration file's security posture is
+# reviewed via the // SECURITY: annotations within it, not via self-linting.
+.eslintrc.js
+
+# SECURITY: Vite bundler config (ES module syntax, build-time only) — not part
+# of the runtime application code surface. CSS/asset bundling configuration.
+vite.config.mjs
+
+
+# -----------------------------------------------------------------------------
+# Phase 5 — Security Audit / Report / Tooling Output Artifacts
+# -----------------------------------------------------------------------------
+# SECURITY: Per AAP §0.10.1 verification commands — these are tool outputs
+# from the security toolchain (npm audit, Trivy, OWASP ZAP, ESLint cache).
+# They are generated artifacts and must not be SAST-scanned.
+
+# OWASP ZAP baseline scan reports (per AAP §0.10.1 zap-baseline-report.html)
+zap-baseline-report.*
+
+# Aqua Trivy container scan reports (per AAP §0.10.1 trivy image scans)
+trivy-report.*
+
+# npm audit JSON/text reports (per AAP §0.10.1 npm audit --audit-level=high)
+npm-audit-report.*
+
+# ESLint own cache file (generated by --cache flag if used in CI)
+.eslintcache
+
+
+# -----------------------------------------------------------------------------
+# Operational Exclusions — Logs, Migrations, Backups, Editor Files
+# -----------------------------------------------------------------------------
+# SECURITY: Mongoose migration backup snapshots (per .gitignore at
+# "lib/migrations/backups") — operator runtime artifacts, not source code.
+lib/migrations/backups/
+
+# SECURITY: Runtime/development config layers (per .gitignore) that may
+# contain operator secrets (AWS keys, SMTP credentials, session passwords).
+# Defense-in-depth: confirm no secret-bearing local config is ever sent
+# through ESLint output channels, even though the file extensions are .yaml.
+config/runtime.json
+config/runtime.json.tmp-*
+config/local.yaml
+config/local.yml
+config/local.json
+config/development.yaml
+config/development.yml
+config/development.json
+config/production.yaml
+config/production.yml
+config/production.json
+config/migration.json
+config/migrationDb.json
+
+# Build/run logs
+*.log
+npm-debug.log
+build.log
+
+# Editor and OS artifacts — not source code
+*.swp
+*.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# Vagrant artifacts (legacy, per .gitignore)
+.vagrant/
+
+# SECURITY: Blitzy platform internal artifacts (screenshots, working
+# directory). Not part of the application source code surface.
+blitzy/
+
+
+# -----------------------------------------------------------------------------
+# Re-Inclusions (Negations) — Explicit SAST Targets
+# -----------------------------------------------------------------------------
+# SECURITY: ESLint applies ignore patterns top-to-bottom; later negations
+# (prefixed with `!`) re-include matched paths. The exclusions above are
+# scoped narrowly so negations are not currently required, but the pattern
+# is documented here for future maintenance: if a security audit needs to
+# pull a specific frozen-frontend file under SAST coverage, add a negation
+# below with a "# SECURITY:" rationale comment citing the AAP finding.
+# Example (commented):
+#   !public/js/trinket-share.js  # SECURITY: targeted audit per AAP-D2
