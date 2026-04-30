@@ -2,6 +2,19 @@ var Joi          = require('joi'),
     helpers      = require('../lib/util/helpers'),
     config       = require('config');
 
+// SECURITY: API route security hardening per AAP §0.5.2 (R5 + R7 + R8) / OWASP A01, A03, A07
+// (1) Joi schemas use object-literal whitelisting to reject NoSQL operator injection ($where, $regex, etc.)
+//     — Joi object literals reject unknown keys by default; string Joi types reject objects (e.g., {$gt: ''})
+//     — All mutating routes audited per AAP §0.5.2 Strategy H / R8 / OWASP A03
+// (2) /api/admin/* routes require pre: ['isAdmin(user)'] per AAP §0.5.2 Strategy G / R7
+//     — All admin routes audited per AAP §0.5.2 Strategy G / R7 / OWASP A01
+// (3) /api/exports (POST), /api/users password/email change, and /api/admin/* mutating routes
+//     opt in to @hapi/crumb CSRF synchronizer-token via plugins: { crumb: true }
+//     — Per AAP Risk Management: scoped to non-SPA routes first; SPA-consumed routes deferred
+//     — Per AAP §0.5.2 Strategy E / R5 / OWASP A07
+// (4) recaptchaValidation degrades to optional when reCAPTCHA unconfigured
+//     — Aligns with lib/util/recaptcha.js fail-open posture per AAP §0.5.2 Strategy C / R3
+
 // Make recaptcha optional when not configured
 var recaptchaValidation = (config.app.recaptcha && config.app.recaptcha.secretkey)
   ? Joi.string().required()
@@ -691,6 +704,7 @@ module.exports = [
     route : 'PUT /api/folders/{folderId}/name folders.update',
     config : {
       auth: 'session',
+      // SECURITY: canEdit enforcement prevents IDOR per AAP §0.5.2 Strategy G / R7 / OWASP A01
       pre : [
         'folder(params.folderId)',
         'canEdit(pre.folder,user)'
@@ -707,7 +721,9 @@ module.exports = [
     route  : 'DELETE /api/folders/{folderId} folders.deleteFolder',
     config : {
       auth: 'session',
-      pre  : ['folder(params.folderId)']
+      // SECURITY: canEdit enforcement prevents IDOR per AAP §0.5.2 Strategy G / R7 / OWASP A01
+      // (matches pattern at PUT /api/folders/{folderId}/name above)
+      pre  : ['folder(params.folderId)', 'canEdit(pre.folder,user)']
     }
   },
   {
@@ -719,6 +735,7 @@ module.exports = [
           limit : Joi.number().optional().max(100).min(0)
         }
       },
+      // SECURITY: isAdmin enforcement per AAP §0.5.2 Strategy G / R7 / OWASP A01 (admin-only metrics endpoint)
       pre : [
         helpers.validLang,
         'isAdmin(user)'
@@ -734,6 +751,7 @@ module.exports = [
           limit : Joi.number().optional().max(100).min(0)
         }
       },
+      // SECURITY: isAdmin enforcement per AAP §0.5.2 Strategy G / R7 / OWASP A01 (admin-only metrics endpoint)
       pre : [
         helpers.validLang,
         'isAdmin(user)'
@@ -774,6 +792,7 @@ module.exports = [
       payload : {
         maxBytes : 10 * (1024 * 1024) // 10MB
       },
+      // SECURITY: canEdit enforcement prevents IDOR per AAP §0.5.2 Strategy G / R7 / OWASP A01
       pre : [
         'trinket(params.trinketId)',
         'canEdit(pre.trinket,user)'
@@ -791,6 +810,7 @@ module.exports = [
     route : 'PUT /api/trinkets/{trinketId}/name trinket.update',
     config : {
       auth: 'session',
+      // SECURITY: canEdit enforcement prevents IDOR per AAP §0.5.2 Strategy G / R7 / OWASP A01
       pre : [
         'trinket(params.trinketId)',
         'canEdit(pre.trinket,user)'
@@ -806,6 +826,7 @@ module.exports = [
     route : 'PUT /api/trinkets/{trinketId}/description trinket.update',
     config : {
       auth: 'session',
+      // SECURITY: canEdit enforcement prevents IDOR per AAP §0.5.2 Strategy G / R7 / OWASP A01
       pre : [
         'trinket(params.trinketId)',
         'canEdit(pre.trinket,user)'
@@ -822,6 +843,7 @@ module.exports = [
     route  : 'DELETE /api/trinkets/{trinketId} trinket.remove',
     config : {
       auth: 'session',
+      // SECURITY: canEdit enforcement prevents IDOR per AAP §0.5.2 Strategy G / R7 / OWASP A01
       pre  : [
         'trinket(params.trinketId)',
         'canEdit(pre.trinket,user)'
@@ -1024,6 +1046,7 @@ module.exports = [
     route : 'POST /api/trinkets/{trinketId}/grant trinket.grant',
     config : {
       auth: 'session',
+      // SECURITY: isAdmin enforcement per AAP §0.5.2 Strategy G / R7 / OWASP A01 (admin-only ownership grant)
       pre : ['isAdmin(user)', 'trinket(params.trinketId)', 'user(query.user)'],
       validate : {
         query : {
@@ -1060,6 +1083,7 @@ module.exports = [
     route : 'PUT /api/trinkets/{trinketId}/slug trinket.updateSlug',
     config : {
       auth: 'session',
+      // SECURITY: canEdit enforcement prevents IDOR per AAP §0.5.2 Strategy G / R7 / OWASP A01
       pre : [
         'trinket(params.trinketId)',
         'canEdit(pre.trinket,user)'
@@ -1075,6 +1099,7 @@ module.exports = [
     route : 'PUT /api/trinkets/{trinketId}/published trinket.update',
     config : {
       auth: 'session',
+      // SECURITY: canEdit enforcement prevents IDOR per AAP §0.5.2 Strategy G / R7 / OWASP A01
       pre : [
         'trinket(params.trinketId)',
         'canEdit(pre.trinket,user)'
@@ -1102,6 +1127,8 @@ module.exports = [
     cookie : true,
     config  : {
       pre : [{ method : helpers.lowerUserFields }, { method : function(req, reply) { return reply(true) }, assign : 'encryptRoles' }],
+      // SECURITY: Joi schema rejects NoSQL operator injection (e.g., {email: {$gt: ''}}) per AAP §0.5.2 Strategy H / R8 / OWASP A03
+      // Joi.string() type rejects object payloads; object-literal schema rejects unknown keys by default
       validate : {
         payload : {
           email    : Joi.string().required(),
@@ -1115,6 +1142,8 @@ module.exports = [
     cookie: true,
     config : {
       pre : [{ method: helpers.lowerUserFields }],
+      // SECURITY: Joi schema rejects NoSQL operator injection (e.g., {email: {$gt: ''}}) per AAP §0.5.2 Strategy H / R8 / OWASP A03
+      // Joi.string().email() type rejects object payloads; object-literal schema rejects unknown keys by default
       validate  : {
         payload : {
           email    : Joi.string().email().required(),
@@ -1143,6 +1172,7 @@ module.exports = [
           name : Joi.string().required()
         }
       },
+      // SECURITY: isAdmin enforcement per AAP §0.5.2 Strategy G / R7 / OWASP A01 (admin-only curated list mutation)
       pre : ['isAdmin(user)', helpers.findTrinket]
     }
   },
@@ -1165,6 +1195,7 @@ module.exports = [
           name : Joi.string().required()
         }
       },
+      // SECURITY: isAdmin enforcement per AAP §0.5.2 Strategy G / R7 / OWASP A01 (admin-only curated list mutation)
       pre : ['isAdmin(user)', helpers.findTrinket]
     }
   },
@@ -1315,6 +1346,8 @@ module.exports = [
     route : 'POST /api/users/password users.changePassword',
     config : {
       auth: 'session',
+      // SECURITY: CSRF synchronizer-token protection per AAP §0.5.2 Strategy E / R5 (highest-risk mutating route)
+      plugins : { crumb : true },
       validate : {
         payload : {
           currentPassword : Joi.string().required(),
@@ -1328,6 +1361,8 @@ module.exports = [
     route : 'POST /api/users/email users.sendEmailChange', // checks for dups, sends confirmation
     config : {
       auth: 'session',
+      // SECURITY: CSRF synchronizer-token protection per AAP §0.5.2 Strategy E / R5 (highest-risk mutating route)
+      plugins : { crumb : true },
       pre : [{ method : helpers.lowerUserFields }],
       validate : {
         payload : {
@@ -1389,6 +1424,9 @@ module.exports = [
     route : 'POST /api/admin/user/{userId} admin.updateUser',
     config : {
       auth: 'session',
+      // SECURITY: CSRF synchronizer-token protection per AAP §0.5.2 Strategy E / R5 (admin mutating route)
+      plugins : { crumb : true },
+      // SECURITY: isAdmin enforcement per AAP §0.5.2 Strategy G / R7 / OWASP A01
       pre  : ['isAdmin(user)']
     }
   },
@@ -1396,6 +1434,9 @@ module.exports = [
     route : 'POST /api/admin/user/{userId}/grant admin.grantRole',
     config : {
       auth: 'session',
+      // SECURITY: CSRF synchronizer-token protection per AAP §0.5.2 Strategy E / R5 (admin mutating route)
+      plugins : { crumb : true },
+      // SECURITY: isAdmin enforcement per AAP §0.5.2 Strategy G / R7 / OWASP A01
       pre  : ['isAdmin(user)'],
       validate : {
         payload : {
@@ -1408,6 +1449,9 @@ module.exports = [
     route : 'POST /api/admin/featured-course admin.addFeaturedCourse',
     config : {
       auth: 'session',
+      // SECURITY: CSRF synchronizer-token protection per AAP §0.5.2 Strategy E / R5 (admin mutating route)
+      plugins : { crumb : true },
+      // SECURITY: isAdmin enforcement per AAP §0.5.2 Strategy G / R7 / OWASP A01
       pre  : ['isAdmin(user)'],
       validate : {
         payload : {
@@ -1422,6 +1466,9 @@ module.exports = [
     route : 'DELETE /api/admin/featured-course/{courseId} admin.removeFeaturedCourse',
     config : {
       auth: 'session',
+      // SECURITY: CSRF synchronizer-token protection per AAP §0.5.2 Strategy E / R5 (admin mutating route)
+      plugins : { crumb : true },
+      // SECURITY: isAdmin enforcement per AAP §0.5.2 Strategy G / R7 / OWASP A01
       pre  : ['isAdmin(user)'],
       validate : {
         params : {
@@ -1437,6 +1484,9 @@ module.exports = [
     route : 'POST /api/admin/featured-course/move admin.moveFeaturedCourse',
     config : {
       auth: 'session',
+      // SECURITY: CSRF synchronizer-token protection per AAP §0.5.2 Strategy E / R5 (admin mutating route)
+      plugins : { crumb : true },
+      // SECURITY: isAdmin enforcement per AAP §0.5.2 Strategy G / R7 / OWASP A01
       pre  : ['isAdmin(user)'],
       validate : {
         payload : {
@@ -1503,7 +1553,9 @@ module.exports = [
   {
     route : 'POST /api/exports users.requestExport',
     config : {
-      auth: 'session'
+      auth: 'session',
+      // SECURITY: CSRF synchronizer-token protection per AAP §0.5.2 Strategy E / R5 (highest-risk export request route, non-SPA)
+      plugins : { crumb : true }
     }
   },
   {
