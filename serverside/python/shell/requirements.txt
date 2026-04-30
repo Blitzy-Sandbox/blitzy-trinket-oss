@@ -24,7 +24,7 @@ seaborn==0.11.2
 exifread==3.0.0
 biopython==1.79
 ete3==3.1.2
-mysql-connector-python==8.0.26
+mysql-connector-python==8.0.33  # SECURITY: CVE-2022-1941 (CVSS 7.5, High) remediated per AAP §0.5.2 Strategy A / R1 — upgraded from 8.0.26 to 8.0.33 (DoS via Connector/Python improper input validation; affected 8.0.7-8.0.31)
 sympy==1.10.1
 pytest==7.1.2
 networkx==2.6.3
