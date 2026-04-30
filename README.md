@@ -114,7 +114,9 @@ Out of the box, Trinket implements the following controls:
 - **CSRF protection**: Synchronizer-token CSRF protection on highest-risk mutating endpoints (`/api/exports`, password/email change, `/api/admin/*`) via [`@hapi/crumb`](https://hapi.dev/module/crumb/), plus `SameSite=Lax` session cookies as a baseline mitigation on remaining endpoints
 - **Input validation**: Joi schemas on all routes; Mongoose schema typing on all queries; Nunjucks auto-escape on all server-rendered templates
 - **Cryptography**: SHA-256 for invitation tokens, bcrypt for passwords, JWT (HS256) for email verification tokens with boot-time secret entropy validation
-- **Container hardening for untrusted code execution**: Server-side shell containers (Python, Java, R, Pygame) ship with `mem_limit`, `pids_limit`, `cpus`, `read_only` rootfs, `tmpfs` for `/tmp`, `no-new-privileges`, and `cap_drop: [ALL]` enabled by default; operators may opt out per [serverside/README.md](serverside/README.md)
+- **Container hardening for untrusted code execution**: Server-side shell containers ship with hardening enabled by default (operators may opt out per [serverside/README.md](serverside/README.md)):
+  - **Text shells** (`python3-shell`, `java-shell`, `r-shell`): full hardening — `mem_limit`, `mem_reservation`, `cpus`, `cpu_shares`, `pids_limit`, `read_only` rootfs, `tmpfs` for `/tmp`, `no-new-privileges`, and `cap_drop: [ALL]`
+  - **Pygame worker** (`pygame-worker`): differential hardening — `mem_limit`, `mem_reservation`, `cpus`, `cpu_shares`, `pids_limit`, `no-new-privileges`, and `cap_drop: [ALL]`; `read_only` and `tmpfs` are intentionally omitted because Xvfb, TightVNC, Supervisor, and noVNC websockify each write to multiple paths that conflict with a strict read-only root
 - **Network isolation**: nginx gateway with `server_tokens off`, separate Docker networks for the main application zone and the adversarial code execution zone
 
 ### Security Updates
