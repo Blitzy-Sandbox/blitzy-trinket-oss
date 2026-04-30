@@ -29,9 +29,9 @@
 
 <form id="change-email" method="post">
   {# SECURITY: CSRF synchronizer-token via @hapi/crumb per AAP §0.5.2 Strategy E / R5 / OWASP A01 (CWE-352) #}
-  {# SECURITY: /api/users/email endpoint receives plugins: { crumb: true } in config/api_routes.js #}
+  {# SECURITY: /api/users/email endpoint receives plugins : { crumb : {} } in config/api_routes.js #}
   {# SECURITY: jQuery $(this).serialize() collects this hidden input into the AJAX POST body for crumb validation #}
-  <input type="hidden" name="crumb" value="{{ crumb }}">
+  <input type="hidden" name="crumb" value="{{ crumb }}" />
   <div class="row">
     <div class="small-12 columns">
       <div class="row">

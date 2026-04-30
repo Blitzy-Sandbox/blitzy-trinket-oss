@@ -220,30 +220,43 @@ const init = async () => {
       //           /api/admin/*, /api/users/password, /api/users/email). SPA-consumed (AngularJS)
       //           routes are explicitly deferred per AAP follow-on plan to avoid frontend
       //           coordination breakage. Addresses QA finding 5.1 (CSRF bypass demonstrated).
-      // Behavior summary: with restful: true, validation is enforced ONLY on routes that
-      //   explicitly opt in via `plugins: { crumb: {} }` (see config/api_routes.js for the
-      //   opt-in list). Non-opt-in mutating routes (the AngularJS SPA's POST/PUT/DELETE
-      //   endpoints) are NOT validated, preserving SPA backward compatibility. The crumb
-      //   cookie is auto-generated on every non-mutating request (GETs, OPTIONs) so the
-      //   legitimate user flow can complete the synchronizer-token round trip:
+      // Behavior summary: with restful: false (the @hapi/crumb default), validation is
+      //   enforced ONLY on routes that explicitly opt in via `plugins: { crumb: {} }` (see
+      //   config/api_routes.js for the opt-in list). Non-opt-in mutating routes (the
+      //   AngularJS SPA's POST/PUT/DELETE endpoints) are NOT validated, preserving SPA
+      //   backward compatibility. The crumb cookie is auto-generated on every non-mutating
+      //   request (GETs, OPTIONs) so the legitimate user flow can complete the
+      //   synchronizer-token round trip:
       //     1. User opens server-rendered form via GET → autoGenerate sets crumb cookie
-      //     2. User submits POST with crumb in payload (or AJAX with X-CSRF-Token header)
-      //     3. @hapi/crumb validates the crumb against the cookie and the route opt-in
+      //        and addToViewContext exposes the token to Nunjucks as `{{ crumb }}`
+      //     2. User submits POST with crumb in form-encoded payload (request.payload.crumb)
+      //        — works for BOTH AJAX `$.ajax({ data: $form.serialize() })` and traditional
+      //        browser form POSTs (which cannot set custom HTTP headers like X-CSRF-Token)
+      //     3. @hapi/crumb validates `request.payload.crumb` against the cookie value
+      //        (per @hapi/crumb v9 source: routeDefaults.source = 'payload' when restful:false)
       plugin: Crumb,
       options: {
-        // SECURITY: Treat POST/PUT/DELETE/PATCH as state-mutating (RFC 7231 §4.2.1).
-        //           In `restful` mode, the crumb is delivered via X-CSRF-Token header
-        //           (or `_csrf` query/payload) instead of form-encoded body, allowing
-        //           AJAX/SPA clients to participate in the synchronizer-token pattern.
-        restful: true,
+        // SECURITY: Validate CSRF crumb from request payload (form-encoded body) per
+        //           @hapi/crumb v9 default behavior (restful: false → source: 'payload').
+        //           This is the correct mode for server-rendered forms because traditional
+        //           HTML form POSTs (e.g., /admin/upload) CANNOT add custom HTTP headers —
+        //           that capability is exclusive to AJAX/fetch. Per @hapi/crumb v9.0.1
+        //           source (node_modules/@hapi/crumb/lib/index.js lines 154-178), restful:false
+        //           reads `request.payload[settings.key]` (default key: 'crumb') and compares
+        //           against the cookie value, rejecting the request with Boom.forbidden() on
+        //           mismatch. AJAX clients using `$.ajax({ data: $form.serialize() })` also
+        //           pass the crumb via form-encoded payload, so this mode covers both
+        //           AJAX and traditional form submission cases uniformly.
+        restful: false,
         // SECURITY: Auto-generate token on every response so opt-in routes can validate.
         //           Without autoGenerate, the legitimate POST flow would 403 because the
         //           browser would have no crumb cookie to echo back. This is required for
-        //           server-rendered forms (addToViewContext) AND SPA AJAX (X-CSRF-Token).
+        //           both server-rendered forms (addToViewContext exposes `{{ crumb }}`) and
+        //           AJAX clients (which read the crumb from the cookie or form payload).
         autoGenerate: true,
         // SECURITY: Available in Nunjucks templates as 'crumb' context var for server-rendered
-        //           forms. Templates can render `<input name="crumb" value="{{crumb}}">` to
-        //           submit the token alongside the form payload (synchronizer-token pattern).
+        //           forms. Templates render `<input type="hidden" name="crumb" value="{{ crumb }}" />`
+        //           to submit the token alongside the form payload (synchronizer-token pattern).
         addToViewContext: true,
         cookieOptions: {
           // SECURITY: Mirror session cookie security posture (HTTPS-only when isSecure=true).

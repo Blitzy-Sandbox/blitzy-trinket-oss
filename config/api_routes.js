@@ -2,7 +2,7 @@ var Joi          = require('joi'),
     helpers      = require('../lib/util/helpers'),
     config       = require('config');
 
-// SECURITY: API route security hardening per AAP §0.5.2 (R5 + R7 + R8) / OWASP A01, A03, A07
+// SECURITY: API route security hardening per AAP §0.5.2 (R5 + R7 + R8) / OWASP A01, A03
 // (1) Joi schemas use object-literal whitelisting to reject NoSQL operator injection ($where, $regex, etc.)
 //     — Joi object literals reject unknown keys by default; string Joi types reject objects (e.g., {$gt: ''})
 //     — All mutating routes audited per AAP §0.5.2 Strategy H / R8 / OWASP A03
@@ -11,7 +11,8 @@ var Joi          = require('joi'),
 // (3) /api/exports (POST), /api/users password/email change, and /api/admin/* mutating routes
 //     opt in to @hapi/crumb CSRF synchronizer-token via plugins : { crumb : {} }
 //     — Per AAP Risk Management: scoped to non-SPA routes first; SPA-consumed routes deferred
-//     — Per AAP §0.5.2 Strategy E / R5 / OWASP A07
+//     — Per AAP §0.5.2 Strategy E / R5 / OWASP A01 Broken Access Control / CWE-352
+//       (CSRF moved from A08:2017 to A01:2021 per OWASP Top 10 2021)
 // (4) recaptchaValidation degrades to optional when reCAPTCHA unconfigured
 //     — Aligns with lib/util/recaptcha.js fail-open posture per AAP §0.5.2 Strategy C / R3
 
