@@ -54,6 +54,8 @@
 
   <div id="codeOutput" class="codeOutput hide" data-interface="output">
     {% if outputOnly %}
+    {# SECURITY: iframe sandbox attribute MUST exclude allow-same-origin per AAP §0.4.1 / OWASP A05 / CWE-1021 — Trinket threat model: untrusted learner code execution requires cross-origin isolation #}
+    {# SECURITY: Default permissions 'allow-scripts allow-forms allow-modals allow-popups' deliberately omit allow-same-origin; operator-configurable via config.sandbox.local.permissions but operators must NOT add allow-same-origin #}
     <iframe id="htmlOutput" {% if config.sandbox.mode == 'local' %}sandbox="{{config.sandbox.local.permissions or 'allow-scripts allow-forms allow-modals allow-popups'}}"{% endif %} {% if snapshot %}scrolling="no"{% endif %}></iframe>
 
     {% else %}
@@ -68,6 +70,8 @@
     </div>
 
     <div id="outputContainer" class="{% if hideInstructions or (not isOwner and not trinket.description) %}withoutTabs{% else %}withTabs{% endif %}">
+      {# SECURITY: iframe sandbox attribute MUST exclude allow-same-origin per AAP §0.4.1 / OWASP A05 / CWE-1021 — Trinket threat model: untrusted learner code execution requires cross-origin isolation #}
+      {# SECURITY: Default permissions 'allow-scripts allow-forms allow-modals allow-popups' deliberately omit allow-same-origin; operator-configurable via config.sandbox.local.permissions but operators must NOT add allow-same-origin #}
       <iframe id="htmlOutput" {% if config.sandbox.mode == 'local' %}sandbox="{{config.sandbox.local.permissions or 'allow-scripts allow-forms allow-modals allow-popups'}}"{% endif %} {% if snapshot %}scrolling="no"{% endif %}></iframe>
     </div>
 
@@ -93,6 +97,9 @@
 {% endblock %}
 
 {% block body_scripts %}
+  {# SECURITY: All `component(...) | safe` and `cachify_js(...) | safe` sites in this file emit server-controlled asset URLs and bundled JS — Class A known-safe context per AAP §0.5.2 Strategy H / R8 / OWASP A03 #}
+  {# SECURITY: component() resolves URLs from server-side config.app.components; cachify_js() emits <script> tags for server-built bundles; NEITHER takes user input #}
+  {# SECURITY: | safe required because these filters output HTML <link>/<script> tags directly; auto-escape (lib/util/nunjucks.js autoescape:true) would HTML-encode the angle brackets #}
   {% if not trinket.displayOnly and not outputOnly %}
   {{ component('ace-builds', 'src-min-noconflict/ace.js') | safe }}
   {{ component('ace-builds', 'src-min-noconflict/ext-modelist.js') | safe }}
