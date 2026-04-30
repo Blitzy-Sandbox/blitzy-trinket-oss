@@ -1,5 +1,6 @@
 # Pygame Worker Container
 # Provides a full graphical environment for pygame code execution
+# SECURITY: pygame worker base image audited per AAP §0.5.2 Strategy F / R6 - no Critical/High OS-layer CVEs identified by Trivy
 
 FROM ubuntu:22.04
 
