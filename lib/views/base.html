@@ -25,7 +25,9 @@
         usersubdomains : {{config.app.usersubdomains}},
         protocol       : '{{config.app.url.protocol}}',
         cachePrefix    : '{{config.app.cachePrefix}}',
+        {# SECURITY: server-controlled config bootstrap via | json | safe — Class A known-safe context per AAP §0.5.2 Strategy H / R8 / OWASP A03 (config.app.prefixes is server-controlled YAML, not user input) #}
         prefixes       : {{ config.app.prefixes | json | safe }},
+        {# SECURITY: server-controlled config bootstrap via | json | safe — Class A known-safe context per AAP §0.5.2 Strategy H / R8 / OWASP A03 (config.app.components is server-controlled YAML, not user input) #}
         components     : {{ config.app.components | json | safe }},
         vendorHost     : '{{ config.aws.buckets.vendorassets.host }}',
         trinketTypes   : [
@@ -60,6 +62,9 @@
           { lang : 'music',      image : '{{config.aws.buckets.appassets.host}}/music.png',      label : 'Music'                                      },
           {% endif %}
         ],
+        {# SECURITY: server-controlled config bootstrap via | join | safe and | json | safe (lines below) — Class A known-safe context per AAP §0.5.2 Strategy H / R8 / OWASP A03 #}
+        {# SECURITY: All values are server-controlled YAML feature lists from config/default.yaml; NOT user input #}
+        {# SECURITY: | safe is REQUIRED here because values are emitted into inline JS literals; auto-escape would HTML-encode quotes/braces and break JS parsing #}
         autorun           : ["{{ config.app.autorun      | join('","') | safe }}"],
         outputOnly        : ["{{ config.app.outputOnly   | join('","') | safe }}"],
         toggleCode        : ["{{ config.app.toggleCode   | join('","') | safe }}"],
