@@ -31,6 +31,9 @@
        ]
     %}
 
+    {# SECURITY: cachify_js() / cachePrefix sites in this file emit server-controlled asset URLs and bundled JS — Class A known-safe context per AAP §0.5.2 Strategy H / R8 / OWASP A03 #}
+    {# SECURITY: js[] file list (lines 5-31) is server-side hardcoded constant array; NOT user input #}
+    {# SECURITY: | safe is required because cachify_js outputs HTML <script> tags directly #}
     <!-- use cachePrefix below to ensure cache busting of updates until cachify_js is working
     {{ cachify_js('embed-glowscript-blocks-iframe', js) | safe }}
     -->
@@ -56,6 +59,9 @@
     trinket = {
       config : {
         cachePrefix : '{{config.app.cachePrefix}}',
+        {# SECURITY: server-controlled config bootstrap via | json | safe — Class A known-safe context per AAP §0.5.2 Strategy H / R8 / OWASP A03 #}
+        {# SECURITY: config.app.prefixes is server-controlled YAML from config/default.yaml; NOT user input #}
+        {# SECURITY: | safe required for inline JS literal context; auto-escape would HTML-encode quotes/braces #}
         prefixes    : {{ config.app.prefixes | json | safe }},
         testing     : {% if config.isTest %}true{% else %}false{% endif %}
       }
