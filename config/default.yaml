@@ -1,3 +1,12 @@
+# Trinket Default Configuration (config/default.yaml)
+# Loaded by node-config; overridden by config/local.yaml and config/<NODE_ENV>.yaml
+# SECURITY: This file contains baseline (non-secret) defaults. All sensitive values
+#           (passwords, secrets, credentials) must be set in config/local.yaml per AAP §0.7.3.
+# SECURITY: Per AAP §0.5.2 boot guards at app.js validate critical secret entropy:
+#           - app.plugins.session.cookieOptions.password ≥ 32 chars (existing)
+#           - app.mail.secret ≥ 32 chars when app.mail is configured (NEW per remediation)
+# SECURITY: See config/local.example.yaml for the operator template documenting all required secrets.
+
 features:
   courses: true   # Enable/disable courses feature entirely
   assets: false   # Enable/disable asset uploads (requires S3 or compatible storage)
@@ -37,7 +46,11 @@ app:
   plugins:
     session:
       cookieOptions:
+        # SECURITY: Boot guard at app.js lines 50-66 refuses startup if password < 32 chars
+        # SECURITY: Generate strong secret: openssl rand -base64 32 (operators set in config/local.yaml)
         password: '' # cookie secret - set in local.yaml
+        # SECURITY: Set isSecure: true in production with HTTPS (cookie Secure flag)
+        # SECURITY: When isSecure: true, app.js onPreResponse appends SameSite=None; Secure (RFC 6265bis §5.4.7)
         isSecure: false # required for non-https applications
         domain: .trinket.dev
       maxCookieSize: 0 # ensures sessions are stored server-side
@@ -120,6 +133,12 @@ app:
     'speakingurl': '1.1.5'
     'video.js': '5.20.4'
     'yamljs': '0.1.5'
+  # SECURITY: reCAPTCHA disabled when secretkey is empty - human verification will fail-open
+  #           with WARN-level log per lib/util/recaptcha.js / AAP §0.5.2 Strategy C / R3
+  # SECURITY: Operators must configure secretkey in config/local.yaml for production deployments
+  #           to enforce human verification on signup, password reset, email verification, and email-share endpoints
+  # SECURITY: Joi recaptchaValidation in config/api_routes.js and config/routes.js degrades to optional
+  #           when secretkey is empty, aligning with the runtime fail-open posture per AAP graceful-degradation directive
   recaptcha:
     sitekey: ''
     secretkey: ''
@@ -130,6 +149,12 @@ app:
       files: true
       unauth: true
       routehandlertiming: true
+  # SECURITY: app.mail.secret should be ≥32 characters when app.mail is configured (host non-empty);
+  #           boot guard at app.js enforces this per AAP §0.5.2 Strategy B / R2 / OWASP A02 Cryptographic Failures
+  # SECURITY: app.mail.secret signs JWT email verification and email-share tokens (HS256)
+  #           in lib/controllers/trinket.js; weak secret enables token forgery
+  # SECURITY: Operators set secret in config/local.yaml — see config/local.example.yaml for template
+  # SECURITY: When app.mail block is absent (operator not using mail), boot succeeds (graceful degradation per AAP §0.8.3)
   mail:
     # SMTP settings for sending email (password reset, notifications, etc.)
     from: ''      # sender address, e.g. noreply@example.com
@@ -321,6 +346,9 @@ app:
     autosaveDebounce: 1000
     enableLogin: true
     enableCopyRemix: true
+  # SECURITY: Google OAuth callback validates state parameter to prevent CSRF
+  #           per AAP §0.5.2 Strategy E / R5 / OWASP A07 (state validation in lib/auth/passport.js)
+  # SECURITY: Operators set clientID/clientSecret in config/local.yaml; never in default.yaml
   auth:
     google:
       clientSecret:
@@ -350,12 +378,17 @@ app:
     pygame:
       api:
         default: 'http://localhost:8080/pygame'
+  # SECURITY: xframeDeny list — paths covered by X-Frame-Options: deny header
+  #           per app.js onPreResponse extension (AAP §0.5.2 Strategy D / R4 / OWASP A05 Security Misconfiguration)
+  # SECURITY: Extended to /admin and /admin/* per AAP §0.6.3 to prevent clickjacking on admin pages
   xframeDeny:
     - '/'
     - '/login'
     - '/signup'
     - '/contact'
     - '/educators'
+    - '/admin'           # SECURITY: extended xframeDeny per AAP §0.5.2 Strategy D / R4
+    - '/admin/*'         # SECURITY: extended xframeDeny to admin sub-paths per AAP §0.6.3
 workers:
   trinkets:
     outputDir: '/tmp/' # should be readable by nginx
@@ -423,12 +456,16 @@ aws:
     keyId: ''
     key: ''
 sandbox:
+  # SECURITY: Sandbox isolation is the primary defense against untrusted learner code
+  #           per AAP §6.4.5 zone definitions: "Code Execution Zone — Adversarial"
+  # SECURITY: iframe sandbox attribute frozen per AAP "Must Remain Unchanged" — DO NOT add allow-same-origin
   # Mode: 'local' uses sandboxed srcdoc (simpler, no external service needed)
   #       'external' uses separate sandbox server (more secure, requires setup)
   mode: 'local'
   # Local mode settings (used when mode: 'local')
   local:
     # Sandbox permissions - do NOT add 'allow-same-origin' for security
+    # SECURITY: allow-same-origin would defeat browser cross-origin isolation per AAP frozen interface
     permissions: 'allow-scripts allow-forms allow-modals allow-popups'
   # External mode settings (used when mode: 'external')
   hostname: 0.0.0.0
