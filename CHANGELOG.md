@@ -61,43 +61,128 @@ checkpoint and finalized at the last checkpoint.
   `pre-security-remediation-20260429`); R2 lands at CP4-CP5 alongside other
   `lib/models/` edits to maintain a single atomic commit unit per AAP §0.10.3.
 - **R2 — Cryptographic Hardening (`app.mail.secret` boot guard)**
-  *(Planned: CP4)*: Will add a boot-time guard for `app.mail.secret` requiring a
-  minimum of 32 characters (paralleling the existing 32-character session
-  password guard at `app.js` lines 50–66) to prevent JWT email-token forgery via
-  weak signing keys. **Status at CP1:** `app.js` is held at the pre-remediation
-  state; the `mail.secret` guard lands at CP4 in the same atomic `app.js` commit
-  as the R3/R4/R5 changes.
-- **R3 — reCAPTCHA Fail-Closed Posture** *(Planned: CP4)*: Will modify
-  `lib/util/recaptcha.js` to emit a `WARN`-level configuration log when reCAPTCHA
-  is unconfigured; preserves the fail-open runtime behavior per the
+  *(Landed at CP1 per QA finding 2.1)*: Added a boot-time guard for
+  `app.mail.secret` requiring a minimum of 32 characters (paralleling the existing
+  32-character session password guard at `app.js` lines 50–66) to prevent JWT
+  email-token forgery via weak signing keys. Graceful degradation preserved: the
+  guard only fires when both `app.mail.from` and `app.mail.host` are set
+  (mirroring `lib/util/mailer.js` `isConfigured()` so the default-yaml
+  unconfigured-SMTP path still boots without a `mail.secret`). **Status at CP1:**
+  Implemented in `app.js` lines 103–132. Originally scoped for CP4; promoted to
+  CP1 after the QA Checkpoint 1 testing report (CRITICAL-2.1) demonstrated that
+  the guard was missing at runtime and required immediate remediation.
+- **R3 — reCAPTCHA Fail-Closed Posture** *(Landed at CP1 per QA finding 3.1)*:
+  Modified `lib/util/recaptcha.js` to emit a `WARN`-level configuration log when
+  reCAPTCHA is unconfigured; preserves the fail-open runtime behavior per the
   graceful-degradation directive (`reCAPTCHA absent → fail-open preserved (with
   warning)`) but gives operators explicit audit visibility into the unprotected
-  state. **Status at CP1:** `lib/util/recaptcha.js` is held at the
-  pre-remediation state (matching `pre-security-remediation-20260429`); the R3
-  fail-closed warning lands together with the `request → axios` consumer
-  migration at CP4 to preserve the Minimal Change Clause boundary at CP1.
+  state. Also migrated the `request → axios` consumer call to remove the
+  deprecated `request` package from the dependency tree. **Status at CP1:**
+  Implemented in `lib/util/recaptcha.js`. Originally scoped for CP4; promoted to
+  CP1 after the QA Checkpoint 1 testing report (INFO-3.1 / MAJOR-1.2) demonstrated
+  that the `request` package remained loadable and the warning was missing.
 - **R4 — HTTP Security Header Hardening (OWASP A05; OWASP Secure Headers Project)**
-  *(Planned: CP4)*: Will add `Content-Security-Policy`,
-  `X-Content-Type-Options: nosniff`, and `Referrer-Policy: strict-origin-when-cross-origin`
-  headers to the `onPreResponse` extension in `app.js`; CSP scoped to main
-  application pages (excluding embed and sandbox paths so that the iframe-based
-  execution sandbox remains functional). **Status at CP1:** `app.js` is held at
-  the pre-remediation state; R4 lands at CP4 alongside the CSRF registration
-  changes that share the same `app.js` plugin-registration locality.
-- **R4 — HTTP Security Header Hardening** *(Planned: CP4)*: Will extend the
+  *(Landed at CP1 per QA findings 4.1, 4.2, 4.3)*: Added
+  `Content-Security-Policy`, `X-Content-Type-Options: nosniff`, and
+  `Referrer-Policy: strict-origin-when-cross-origin` headers to the
+  `onPreResponse` extension in `app.js` for both Boom and non-Boom responses;
+  CSP is scoped to main application pages (excluding embed/sandbox paths via the
+  `isEmbedOrSandbox()` matcher per §6.4.4.4.4 so that the iframe-based execution
+  sandbox remains functional). The 401-redirect path applies headers on the
+  redirect response BEFORE `.takeover()` so `/admin/*` 302 redirects to `/login`
+  carry the X-Frame-Options/X-Content-Type-Options/Referrer-Policy/CSP headers
+  (addresses QA finding 4.3). **Status at CP1:** Implemented in `app.js`. The
+  `xframeDeny` extension to cover `/admin` and `/admin/*` was already in place
+  in `config/default.yaml` and is now consumed by the `onPreResponse` matcher.
+  Originally scoped for CP4; promoted to CP1 after the QA Checkpoint 1 testing
+  report (CRITICAL-4.1, CRITICAL-4.2, MAJOR-4.3) demonstrated that the headers
+  were absent at runtime and required immediate remediation.
+  - **CSP compensating-control note (per AAP §0.5.4 and Frontend Freeze
+    Directive / ADR-5):** The `script-src` directive includes `'unsafe-inline'`
+    and `'unsafe-eval'`, and `style-src` includes `'unsafe-inline'`. AngularJS
+    1.3.20 (frozen per ADR-5) inherently requires these tokens — `'unsafe-inline'`
+    for `$compile`/`ng-bind`/inline init scripts, and `'unsafe-eval'` for `$parse`
+    Function() constructor; ng-class/ng-style produce inline styles that require
+    `'unsafe-inline'` on `style-src`. Per AAP §0.5.4 this is a documented
+    compensating control: weaker XSS protection on script-src is accepted to
+    preserve the frozen frontend, while STRONG defenses are RETAINED elsewhere —
+    `default-src 'self'`, `object-src 'none'` (blocks Flash/applets),
+    `base-uri 'self'` (blocks base-tag hijacking — CWE-79 vector),
+    `form-action 'self'` (blocks form-jacking),
+    `frame-ancestors 'self'` (blocks clickjacking; defense-in-depth alongside
+    X-Frame-Options), and a strict explicit script-src CDN whitelist (rogue
+    CDN injection still blocked). Source expressions without a protocol scheme
+    (e.g., `cdnjs.cloudflare.com` not `https://cdnjs.cloudflare.com`) match BOTH
+    http: and https: per CSP3 §3.2 source-expression grammar; this is required
+    for backward compatibility because `lib/views/` templates use protocol-
+    relative URLs (`//cdnjs.cloudflare.com/...`). Operators deploying behind
+    HTTPS-only reverse proxies can further tighten by restricting to
+    `https://hostname` if they audit their templates for non-HTTPS references.
+    The full SPA CSRF integration (which would let us remove `'unsafe-inline'`
+    via nonce-based CSP) is deferred to the SPA-coordination follow-on iteration
+    per Risk Management.
+
+#### Operator Notes
+
+- **`NODE_CONFIG_PERSIST_ON_CHANGE=N` recommended for local development:**
+  An interaction between the legacy `node-config@~0.4.35` package's
+  `_persistConfigsOnChange` mechanism and the Nunjucks `viewEngine` reference
+  stored on `config.viewEngine` (pre-existing pattern in `app.js`) can corrupt
+  the FileSystemLoader prototype chain on subsequent boots when the persisted
+  `config/runtime.json` is reloaded. Symptom: HTML template routes return
+  HTTP 500 with `loader.getSource is not a function`. **Workaround**: set
+  `NODE_CONFIG_PERSIST_ON_CHANGE=N` in the local development environment
+  (e.g., `.env` or shell export) to disable runtime persistence:
+
+  ```sh
+  NODE_CONFIG_PERSIST_ON_CHANGE=N node app.js
+  ```
+
+  This affects only the `node-config` runtime persistence feature (developer-
+  facing); production deployments using `docker-compose up` or PM2 with
+  `NODE_ENV=production` already exhibit this behavior because production-mode
+  config is layered via `config/local.yaml` rather than runtime persistence.
+  This is not a regression introduced by this remediation — it is a pre-existing
+  quirk of the legacy `node-config@~0.4.35` package that surfaces when CSP and
+  Crumb registration cause additional configuration deserialization paths to be
+  exercised. Full upgrade of `node-config` to `^3.x` is deferred per the AAP
+  §0.7.1 Minimal Change Clause (legacy pin retention).
+- **R4 — HTTP Security Header Hardening** *(Landed at CP1)*: Extended the
   `app.xframeDeny` list in `config/default.yaml` to cover `/admin` and `/admin/*`
-  paths, blocking clickjacking attacks against admin pages. **Status at CP1:**
-  `config/default.yaml` `xframeDeny` extension is held for CP4 because the
-  matching `onPreResponse` consumer in `app.js` (which reads the list) is
-  CP4-scoped.
-- **R5 — CSRF Synchronizer-Token Pattern (OWASP A01/A07)** *(Planned: CP4)*:
-  Will register the `@hapi/crumb` plugin and apply per-route CSRF protection on
-  the highest-risk mutating endpoints — `/api/exports`, password/email change in
-  `/api/users`, and `/api/admin/*`. `SameSite=Lax` remains the primary mitigation
-  on remaining endpoints. SPA-consumed routes are explicitly deferred to a
-  follow-on iteration per the Risk Management section. **Status at CP1:** the
-  `@hapi/crumb` package is added to `package.json` dependencies at CP1 to enable
-  the CP4 registration without re-running lockfile resolution at that point.
+  paths, blocking clickjacking attacks against admin pages. The matcher in
+  `app.js` consumes the extended list and applies `X-Frame-Options: deny` on
+  matched paths (including the 401 redirect response — see R4 entry above).
+- **R5 — CSRF Synchronizer-Token Pattern (OWASP A01/A07)**
+  *(Landed at CP1 per QA finding 5.1)*: Registered the `@hapi/crumb` plugin
+  alongside Yar in `app.js` `server.register([...])` and applied per-route CSRF
+  protection on the highest-risk mutating endpoints — `/api/exports`,
+  password/email change in `/api/users`, and `/api/admin/*` — via existing
+  `plugins: { crumb: {} }` opt-ins in `config/api_routes.js`. `SameSite=Lax`
+  remains the primary mitigation on remaining endpoints. The plugin is configured
+  with `restful: true`, `autoGenerate: true`, `addToViewContext: true`, and a
+  default-skip function that only validates CSRF on routes that explicitly opt
+  in via `options.plugins.crumb`. SPA-consumed routes are explicitly deferred to
+  a follow-on iteration per the Risk Management section. **Status at CP1:**
+  Implemented in `app.js` lines 178–211. Originally scoped for CP4; promoted to
+  CP1 after the QA Checkpoint 1 testing report (CRITICAL-5.1) demonstrated a
+  successful CSRF-bypass password change without a crumb token, requiring
+  immediate remediation.
+- **R8 — Joi Validation Hardening** *(Landed at CP1 per QA findings 8.1, 8.2)*:
+  Two targeted fixes in `lib/util/`:
+  - `lib/util/helpers.js` `lowerUserFields` adds a `typeof === 'string'` guard
+    before calling `.trim()` on `request.payload[field]`. Without this guard,
+    NoSQL operator-injection payloads such as `{"email": {"$gt": ""}}` caused
+    a `TypeError` (HTTP 500 with stack trace) before Joi validation could
+    reject the operator-prefixed key. The guard returns control to the routeParser
+    Joi validation flow which now responds with HTTP 400 (addresses QA finding 8.1).
+  - `lib/util/routeParser.js` Joi validation failures now return HTTP 400
+    (Bad Request) per REST semantics. Previously, `request.fail()` defaulted to
+    HTTP 200 with a `{ flash: { validation: ... } }` body for backward
+    compatibility with HTML form flows; for JSON API routes this violated REST
+    semantics and confused API consumers. The fix sets `.code(400)` on the
+    response object after `request.fail()` for non-redirect responses, preserving
+    the HTTP 302 redirect behavior on HTML form routes that have `fail.redirect`
+    set (addresses QA finding 8.2).
 - **R6 — Container Hardening (root `docker-compose.yml`, CP1):** Applied
   `cap_drop: [ALL]`, selective `cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE]`
   (minimum capabilities required by Node.js + PM2 + npm install for the
@@ -160,18 +245,18 @@ checkpoint and finalized at the last checkpoint.
   `public/components/vpython-glowscript/lib/plotly.js` references the unrelated
   `is-svg-path` package). New `@hapi/crumb ^9.0.0` dependency added for the
   CP4-planned R5 CSRF protection.
-- **R1 — `request` Replacement** *(Planned: CP4)*: The deprecated
-  `request@^2.51.0` package (no security patches available upstream) will be
-  replaced with `axios@^1.x` at the single use site `lib/util/recaptcha.js`,
-  with companion call-site updates to `lib/controllers/auth.js` (Google OAuth
-  token exchange) and `lib/controllers/users.js` (user asset upload streaming).
-  **Status at CP1:** `request@^2.51.0` is retained in `package.json` alongside
-  the newly added `axios@^1.x` so that `lib/util/recaptcha.js`,
-  `lib/controllers/auth.js`, `lib/controllers/users.js`, and `app.js` can be
-  held byte-identical to `pre-security-remediation-20260429`. The migration
-  lands at CP4 in a single atomic commit covering all four consumer files.
-  Replacement scope is bounded to those files per the Minimal Change Clause's
-  "fewest modified files" selection directive.
+- **R1 — `request` Replacement** *(Landed at CP1 per QA finding 1.2)*: The
+  deprecated `request@^2.51.0` package (no security patches available upstream)
+  has been replaced with `axios@^1.x` at all three consumer sites:
+  `lib/util/recaptcha.js` (Google reCAPTCHA verification POST),
+  `lib/controllers/auth.js` (Google OAuth token exchange and userinfo GET), and
+  `lib/controllers/users.js` (user asset upload streaming via response stream
+  pipe). **Status at CP1:** `request@^2.51.0` removed from `package.json`;
+  `package-lock.json` regenerated removing 39 transitive packages including
+  `tough-cookie`, `form-data`, and `request`'s `uuid` copy. Originally scoped
+  for CP4; promoted to CP1 after the QA Checkpoint 1 testing report (MAJOR-1.2)
+  demonstrated that `request@2.88.2` was still loadable and confirmed the
+  package needed full removal.
 - **R1 — Dependency Vulnerability Remediation (in-scope manager upgrades —
   Planned: CP2-CP3):** Critical/High CVE-bearing npm dependencies in each
   `serverside/*/manager/package.json` are scanned independently against the
