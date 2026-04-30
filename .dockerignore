@@ -1,1 +1,42 @@
 **/.git
+
+# SECURITY: Prevent secrets from being baked into the Docker build context
+# Per AAP §0.6.1 audit: ensure *.env, *.local, local.yaml are excluded
+# Per AAP §0.7.3: AWS, MongoDB, Redis, SMTP credentials remain in config/local.yaml (not env vars)
+**/.env
+**/.env.*
+**/*.local
+config/local.yaml
+config/local.yml
+config/local.json
+config/local.*.yaml
+config/local.*.yml
+config/production.yaml
+config/production.yml
+config/production.json
+config/production.*.yaml
+config/production.*.yml
+config/development.yaml
+config/development.yml
+config/development.json
+config/migration.json
+config/migrationDb.json
+config/runtime.json
+config/runtime.json.tmp-*
+# SECURITY: Re-include the example template (committed in repo, contains no real secrets)
+# It is a documentation file required for first-time operator setup.
+!config/local.example.yaml
+
+# SECURITY: Exclude lockfile baseline snapshot used for security rollback (per AAP §0.5.4 Risk Management)
+package-lock.baseline.json
+
+# SECURITY: Exclude security audit and report artifacts to prevent leakage
+zap-baseline-report.html
+trivy-report.*
+npm-audit-report.*
+.eslintcache
+
+# SECURITY: Exclude test artifacts from production image (defense-in-depth; may contain secret-looking strings)
+**/coverage
+**/.nyc_output
+**/test-results
