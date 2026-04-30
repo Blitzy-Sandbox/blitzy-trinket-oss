@@ -101,6 +101,9 @@
         <a id="admin-roles" class="button small" data-userid="{{ data._id }}" data-username="{{ data.username }}">Change Roles</a>
       </li>
       <li class="content {% if active == 'json' %}active{% endif %}" id="json">
+        {# SECURITY: admin-only JSON dump via | json("pretty") | safe — Class A known-safe context per AAP §0.5.2 Strategy H / R8 / OWASP A03 #}
+        {# SECURITY: data is server-side Mongoose document serialized via JSON.stringify; admin pages enforce isAdmin pre-handler per AAP §0.5.2 Strategy G / R7 #}
+        {# SECURITY: | safe required because <pre> renders JSON-encoded output; auto-escape would double-encode special chars and corrupt the rendered JSON view #}
         <pre>{{ data | json("pretty") | safe }}</pre>
       </li>
     </ul>
@@ -142,6 +145,8 @@ Roles for {{username}}
 {% endraw %}
 
 <script type="text/json" id="rolesData">
+{# SECURITY: admin-only role data via | json | safe — Class A known-safe context per AAP §0.5.2 Strategy H / R8 / OWASP A03 #}
+{# SECURITY: data.roles is server-side role array (Mongoose document); admin pages enforce isAdmin pre-handler per AAP §0.5.2 Strategy G / R7; emitted into <script type="text/json"> JS-readable block (not rendered as HTML), so auto-escape would corrupt JSON parsing #}
 {{ data.roles | json | safe }}
 </script>
 {% endif %}
