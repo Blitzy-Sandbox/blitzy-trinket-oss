@@ -190,6 +190,22 @@ services:
       - no-new-privileges:true   # SECURITY: Block setuid privilege escalation
     cap_drop:
       - ALL                      # SECURITY: Drop all Linux capabilities (least privilege)
+    # SECURITY: Selectively re-add the minimum capabilities Supervisor requires to drop privileges
+    # from root (PID 1 / supervisord) to the unprivileged `trinket` user (uid 1000) for the xvnc
+    # and shell programs declared in /etc/supervisor/conf.d/{xvnc,shell}.conf with `user=trinket`.
+    # Without these re-additions, Supervisor exits child processes with "supervisor: couldn't
+    # setuid to 1000: Could not set groups of effective user", leaving xvnc and shell in FATAL
+    # state and breaking pygame execution end-to-end. Each capability is the narrowest required:
+    #   - SETUID: setuid(2) syscall (Supervisor → child uid switch)
+    #   - SETGID: setgid(2) and setgroups(2) syscalls (Supervisor → child gid + supplementary groups)
+    #   - SETPCAP: cap_set_proc(3) (Supervisor capability transitions on setuid)
+    # `no-new-privileges: true` and `cap_drop: ALL` (with selective re-add) together still prevent
+    # the unprivileged child processes from regaining capabilities, preserving least-privilege.
+    # AAP §0.5.2 Strategy F (R6) - resolves QA Issue 6 (cap_drop:ALL breaks supervisor setuid).
+    cap_add:
+      - SETUID                   # SECURITY: Required by supervisord to drop privileges to uid 1000 (trinket user) for xvnc and shell
+      - SETGID                   # SECURITY: Required by supervisord to set gid and supplementary groups when dropping privileges
+      - SETPCAP                  # SECURITY: Required by supervisord to drop capabilities from child after setuid
 
   pygame-manager:
     build: ./pygame/manager
