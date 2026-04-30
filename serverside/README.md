@@ -251,6 +251,10 @@ pygame-worker:
     - no-new-privileges:true   # SECURITY: Block setuid privilege escalation (no graphical conflict)
   cap_drop:
     - ALL                      # SECURITY: Drop all Linux capabilities (no graphical conflict)
+  cap_add:
+    - SETUID                   # SECURITY: Required by supervisord setuid → trinket user (uid 1000)
+    - SETGID                   # SECURITY: Required by supervisord setgid + supplementary groups
+    - SETPCAP                  # SECURITY: Required by supervisord cap_set_proc on setuid transition
   # NOTE: read_only and tmpfs are intentionally OMITTED for the pygame-worker
   #       because the graphical stack (Xvfb, TightVNC, Supervisor, noVNC) writes
   #       to multiple paths (/tmp/.X11-unix, ~/.vnc, /var/run/supervisor, etc.)
@@ -269,6 +273,18 @@ defense per AAP §0.8.3 — the pygame worker still cannot escalate privileges,
 fork-bomb the host, or exhaust memory. Future hardening of the pygame worker
 will require either narrower writable mounts for each subsystem path **or** a
 larger tmpfs that covers all four subsystems' write requirements.
+
+`cap_add: [SETUID, SETGID, SETPCAP]` selectively re-adds three Linux capabilities
+that supervisord requires to drop privileges from root (the supervisord PID 1
+process) to the unprivileged `trinket` user (uid 1000) declared in
+`/etc/supervisor/conf.d/{xvnc,shell}.conf` via `user=trinket`. Without these
+three capabilities, supervisord aborts each child with the error
+`supervisor: couldn't setuid to 1000: Could not set groups of effective user`
+and leaves the xvnc and shell programs in `FATAL` state, breaking pygame
+execution end-to-end. `no-new-privileges: true` together with `cap_drop: ALL`
+(plus the selective re-add of only the three setuid-related capabilities)
+preserves least-privilege after the privilege drop is complete: the
+unprivileged child processes inherit no capabilities and cannot regain them.
 
 #### Operator Opt-Out
 
@@ -350,7 +366,47 @@ docker run -d \
 
 For the `pygame-worker` image, omit `--read-only` and `--tmpfs /tmp:size=100m`
 to match the differential hardening profile, and raise `--memory`, `--cpus`,
-and `--pids-limit` per the table above.
+and `--pids-limit` per the table above. Add
+`--cap-add=SETUID --cap-add=SETGID --cap-add=SETPCAP` so supervisord can drop
+privileges to the unprivileged `trinket` user for the xvnc and shell programs.
+
+#### Hardening Compatibility Adjustments
+
+To make the default-on hardening compatible with the runtime stacks the shells
+embed, the shell Dockerfiles set the following environment variables. These
+are part of the hardening contract — operators relaxing a directive (e.g.,
+removing `read_only: true`) may also remove or tune the matching env var.
+
+| Shell | Env Var | Value | Purpose |
+|-------|---------|-------|---------|
+| python3-shell, java-shell, r-shell | `PM2_HOME` | `/tmp/.pm2` | Redirect PM2's state directory (logs, pids, module_conf, rpc.sock, pub.sock) from `~/.pm2` (read-only under `read_only: true`) to `/tmp/.pm2` (writable via the `tmpfs: /tmp:size=100m` mount). Without this redirect, `pm2-runtime start server.js` exits with ENOENT errors writing `~/.pm2/{pm2.pid,module_conf.json}`, and the shell container immediately crashes (exit 137 / SIGKILL). |
+| r-shell | `OPENBLAS_NUM_THREADS` | `4` | Constrain OpenBLAS thread pool (default = host CPU count, often 128) to a value that fits within `pids_limit: 50`. Without this constraint, R's OpenBLAS attempts up to 128 `pthread_create()` calls at startup, fails with EAGAIN under the 50-PID cap, and triggers an irrecoverable segfault deep in OpenBLAS initialization. 4 threads is sufficient for typical interactive R workloads. |
+| r-shell | `OMP_NUM_THREADS` | `4` | Same intent as `OPENBLAS_NUM_THREADS=4` but applied to OpenMP-based BLAS variants and other R/Fortran packages that consult `OMP_NUM_THREADS` instead of `OPENBLAS_NUM_THREADS`. |
+
+Operators wishing to relax these env vars can either (a) raise `pids_limit`
+to accommodate the higher thread count or (b) remove `read_only: true` to
+allow PM2 to use the default `~/.pm2` location. Either change should be done
+through the [Operator Opt-Out](#operator-opt-out) pattern documented above
+(remove or comment the directive in `docker-compose.yml` or in the Dockerfile
+ENV statement) — the remaining hardening directives stay in effect.
+
+#### Residual Risk Register
+
+The following CVEs remain present in built images after the AAP §0.5.2
+Strategy F (R6) remediation. Each is documented as accepted residual risk
+per AAP §0.0 Deliverable #7 because mitigating them would require changing
+an AAP frozen invariant or unfixable upstream component. Defense-in-depth
+via the container hardening directives above mitigates the adversarial-zone
+threat model (untrusted learner code execution).
+
+| Image | CVE Surface | Source | Residual Mitigation |
+|-------|-------------|--------|---------------------|
+| All managers (`serverside-{python3,java,r,pygame}-manager`) | 1 HIGH per image in `picomatch@4.0.3` (CVE-2026-33671) | npm bundled with `node:22-alpine` (current LTS) | Library is in npm CLI tooling, not reachable from manager runtime code path; current LTS Node 22 is the most recent patched version available |
+| `serverside-python3-shell` | ~2 unfixable Debian CRITICAL + ~9 unfixable Debian HIGH (slim-bookworm OS layer); 1 CRITICAL + ~17 HIGH in npm-bundled libs (form-data CVE-2025-7783, ansi-regex CVE-2021-3807, etc.) | python:3.10-slim-bookworm Debian 12 stable (no upstream fix); NVM-installed Node 14.21.1 (final 14.x release, EOL April 2023) | Slim variant minimizes Debian CVE surface (vs. 20+343 in full bookworm). Node 14.21.1 is AAP frozen invariant per QA Phase 2F; libs are in npm CLI tooling, not reachable from trinket runtime code path; full container hardening enforced |
+| `serverside-java-shell` | 1 CRITICAL + ~17 HIGH in npm-bundled libs (form-data CVE-2025-7783, ansi-regex CVE-2021-3807, cross-spawn CVE-2024-21538, etc.) | NVM-installed Node 14.21.1 (final 14.x release, EOL April 2023) | AAP frozen invariant per QA Phase 2F; libs are in npm CLI tooling, not reachable from trinket runtime code path; full container hardening enforced |
+| `serverside-r-shell` | ~11 HIGH in npm-bundled libs (cross-spawn, glob, minimatch, tar) | NVM-installed Node 18.20.5 (latest 18.x patch) | AAP frozen invariant per QA Phase 2F; libs are in npm CLI tooling; full container hardening enforced |
+| `serverside-pygame-worker` | ~4 HIGH unfixable linux-libc-dev (CVE-2024-35870, CVE-2024-53179, CVE-2025-37899, CVE-2025-38118) + ~11 HIGH npm-bundled libs | Ubuntu 22.04 LTS kernel-headers (`build-essential` transitive) and apt-installed Node 18 from `nodesource setup_18.x` | linux-libc-dev requires Ubuntu LTS backport (operator-controlled); npm libs are CLI tooling not reachable from runtime; differential hardening enforced (cap_drop ALL with selective cap_add SETUID/SETGID/SETPCAP, mem_limit, pids_limit, no-new-privileges) |
+| Manager npm packages | 1-3 MODERATE in `file-type` (GHSA-5v7r-6r5c-r473) and `is-svg` (transitive `fast-xml-parser`) | Pinned dependency tree | Below `--audit-level=high` threshold; managers are TRUSTED-ZONE Node.js orchestrators not directly executing untrusted code |
 
 #### Network Isolation
 
