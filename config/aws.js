@@ -6,8 +6,9 @@ var AWS      = require('aws-sdk')
 //  in lib/util/file.js and lib/workers/exports.js; v2 in maintenance mode but still
 //  receiving security patches per AWS announcement)
 // SECURITY: SDK construction interface preserved within v2.x — accessKeyId/secretAccessKey/region
-// SECURITY: Credentials sourced from config.aws (loaded from config/local.yaml or environment)
-// — never from environment variables in this codebase per AAP §0.7.3
+// SECURITY: Credentials sourced exclusively from config.aws (loaded from config/local.yaml via
+// node-config YAML layering; operator-managed). Environment variables are NOT a credential
+// source in this codebase per AAP §0.7.3 — operators must place keyId/key in local.yaml.
 AWS.config.update({
   accessKeyId       : config.aws.keyId
   , secretAccessKey : config.aws.key
