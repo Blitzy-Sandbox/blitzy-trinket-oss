@@ -1,3 +1,4 @@
+# SECURITY: r shell base image audited per AAP §0.5.2 Strategy F / R6 — no Critical/High OS CVEs identified at audit time
 FROM r-base:4.4.2
 
 # Install build dependencies including those needed for R graphics packages
