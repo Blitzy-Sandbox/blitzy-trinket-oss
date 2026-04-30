@@ -71,6 +71,9 @@
             <i class="fa fa-file-text-o"></i>
             {{ course.lessons[ lessonIndex ].materials[ materialIndex ].name }}
           </h4>
+          {# SECURITY: pageContent is pre-sanitized via lib/shared/trinket-markdown.js parser (HTML whitelist sanitizer) — Class A known-safe context per AAP §0.5.2 Strategy H / R8 / OWASP A03 #}
+          {# SECURITY: pageContent flows from lib/controllers/courses.js:221 `parser(info.content)` where parser = require('../shared/trinket-markdown.js')({}) #}
+          {# SECURITY: | safe is required because trinket-markdown produces sanitized HTML (e.g., <p>, <em>, <strong>); auto-escape would double-encode and break formatting #}
           <div class="content">{{ pageContent | safe }}</div>
         </div>
       </div>
