@@ -15,7 +15,7 @@ Trinket lets students and educators write and run code directly in the browser, 
 ## Prerequisites
 
 - Docker and Docker Compose
-- Node.js 18+ (for local development without Docker)
+- Node.js 20 LTS (for local development without Docker)
 - MongoDB 5.0+
 - Redis (optional - falls back to in-memory)
 
@@ -54,6 +54,7 @@ Copy `config/local.example.yaml` to `config/local.yaml` and fill in the required
 | Setting | Description |
 |---------|-------------|
 | `app.plugins.session.cookieOptions.password` | Session cookie secret (min 32 chars) |
+| `app.mail.secret` | JWT email token secret (min 32 chars; boot guard enforces) |
 
 ### Optional Integrations
 
@@ -90,11 +91,35 @@ npm test
 
 ## Architecture
 
-- **Backend**: Node.js with Hapi framework
+- **Backend**: Node.js 20 LTS with Hapi framework
 - **Database**: MongoDB with Mongoose ODM
 - **Cache/Sessions**: Redis (optional)
 - **Frontend**: AngularJS 1.x
 - **Code Execution**: Skulpt (Python in browser), server-side containers for other languages
+
+## Security
+
+Trinket maintains a defense-in-depth security posture across the application stack. The full policy, threat model, supported versions, and disclosure process are documented in [SECURITY.md](SECURITY.md).
+
+### Reporting a Vulnerability
+
+**Please do not report security vulnerabilities through public GitHub issues.** Follow the private disclosure process described in [SECURITY.md](SECURITY.md). For self-hosted deployments, operators may substitute their own maintainer-controlled contact channel.
+
+### Security Controls
+
+Out of the box, Trinket implements the following controls:
+
+- **Authentication & sessions**: Session-based authentication with sliding 24-hour TTL, sealed iron-encrypted session cookies, and bcrypt password hashing
+- **HTTP security headers**: `Content-Security-Policy`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, and `X-Frame-Options: deny` on sensitive paths (including `/admin/*`)
+- **CSRF protection**: Synchronizer-token CSRF protection on highest-risk mutating endpoints (`/api/exports`, password/email change, `/api/admin/*`) via [`@hapi/crumb`](https://hapi.dev/module/crumb/), plus `SameSite=Lax` session cookies as a baseline mitigation on remaining endpoints
+- **Input validation**: Joi schemas on all routes; Mongoose schema typing on all queries; Nunjucks auto-escape on all server-rendered templates
+- **Cryptography**: SHA-256 for invitation tokens, bcrypt for passwords, JWT (HS256) for email verification tokens with boot-time secret entropy validation
+- **Container hardening for untrusted code execution**: Server-side shell containers (Python, Java, R, Pygame) ship with `mem_limit`, `pids_limit`, `cpus`, `read_only` rootfs, `tmpfs` for `/tmp`, `no-new-privileges`, and `cap_drop: [ALL]` enabled by default; operators may opt out per [serverside/README.md](serverside/README.md)
+- **Network isolation**: nginx gateway with `server_tokens off`, separate Docker networks for the main application zone and the adversarial code execution zone
+
+### Security Updates
+
+Security-relevant changes are recorded in [CHANGELOG.md](CHANGELOG.md). When upgrading from an earlier release, please review the changelog for any deployment-side adjustments that may be required (for example, ensuring `app.mail.secret` is at least 32 characters before boot).
 
 ## Contributing
 
