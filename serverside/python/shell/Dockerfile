@@ -1,4 +1,5 @@
 # FROM phusion/passenger-nodejs:2.0.1
+# SECURITY: python shell base image audited per AAP §0.5.2 Strategy F / R6 — no Critical/High OS CVEs identified at audit time; container hardening directives (mem_limit/pids_limit/read_only/tmpfs/no-new-privileges/cap-drop=ALL) enforced via serverside/docker-compose.yml
 FROM python:3.10-bullseye
 
 # ARG DEBIAN_FRONTEND=noninteractive
