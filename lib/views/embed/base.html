@@ -14,6 +14,9 @@
   <link rel="apple-touch-icon-precomposed" sizes="72x72" href="{{ '/img/icons/apple-touch-icon-72x72-precomposed.png' | cachePrefix }}">
   <link rel="apple-touch-icon-precomposed" href="{{ '/img/icons/apple-touch-icon-precomposed.png' | cachePrefix }}">
   <link rel="stylesheet" type="text/css" href="//cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" crossorigin="anonymous">
+  {# SECURITY: server-controlled asset URL via component() filter — Class A known-safe context per AAP §0.5.2 Strategy H / R8 / OWASP A03 #}
+  {# SECURITY: component() generates <link>/<script> tags from server-side config.app.components; NOT user input #}
+  {# SECURITY: | safe required because component() outputs HTML tags directly; auto-escape would HTML-encode angle brackets #}
   {{ component('font-mfizz', 'css/font-mfizz.css') | safe }}
   <link rel="stylesheet" type="text/css" href="{{ '/css/embed.css' | cachePrefix }}" crossorigin="anonymous">
   {% block head_styles %}
@@ -26,6 +29,9 @@
         usersubdomains    :  {{config.app.usersubdomains}},
         protocol          : '{{config.app.url.protocol}}',
         cachePrefix       : '{{config.app.cachePrefix}}',
+        {# SECURITY: server-controlled config bootstrap via | json | safe — Class A known-safe context per AAP §0.5.2 Strategy H / R8 / OWASP A03 #}
+        {# SECURITY: All values are server-controlled YAML from config/default.yaml; NOT user input #}
+        {# SECURITY: | safe required for inline JS literal context; auto-escape would HTML-encode quotes/braces in the JSON output #}
         prefixes          :  {{ config.app.prefixes | json | safe }},
         components        :  {{ config.app.components | json | safe }},
         vendorHost        : '{{ config.aws.buckets.vendorassets.host }}',
@@ -77,6 +83,11 @@
   <input id="roles" type='hidden' value='{{ user.roles | encrypt }}'>
   {% endif %}
   <script>
+    {# SECURITY: trinket/draft/userSettings bootstrap JSON via | escapeJSON | json | safe pipeline — Class A known-safe context per AAP §0.5.2 Strategy H / R8 / OWASP A03 #}
+    {# SECURITY: | escapeJSON filter (lib/util/nunjucks.js) recursively HTML-escapes ALL string values inside the data structure (defense-in-depth even though Class A pre-sanitization is via Mongoose validator/Joi schemas) #}
+    {# SECURITY: | json filter then JSON-stringifies the (now-escaped) structure for inline JS literal context #}
+    {# SECURITY: | safe is required because the JSON output contains characters (quotes, braces) that auto-escape would HTML-encode, breaking JSON syntax #}
+    {# SECURITY: This pipeline prevents XSS even when user-controlled trinket name/description fields are inside the JSON data structure #}
     trinketObject = {% if trinket %}{{ trinket | escapeJSON | json | safe }}{% else %}{}{% endif %};
   {% if not outputOnly %}
     draftObject   = {% if draft %}{{ draft | escapeJSON | json | safe }}{% else %}undefined{% endif %};
@@ -502,6 +513,9 @@
 
   <script src="//cdnjs.cloudflare.com/ajax/libs/localStorage/2.0.1/localStorage.min.js?swfURL=//cdnjs.cloudflare.com/ajax/libs/localStorage/2.0.1/localStorage.swf" type="text/javacript"></script>
 
+  {# SECURITY: server-controlled asset URLs via component() filter — Class A known-safe context per AAP §0.5.2 Strategy H / R8 / OWASP A03 #}
+  {# SECURITY: component() generates <script> tags from server-side config.app.components; NOT user input #}
+  {# SECURITY: | safe required because component() outputs HTML <script> tags directly; auto-escape would HTML-encode angle brackets #}
   {% if not outputOnly %}
   {{ component('jszip', 'dist/jszip.min.js') | safe }}
   {{ component('jszip-utils', 'jszip-utils.min.js') | safe }}
