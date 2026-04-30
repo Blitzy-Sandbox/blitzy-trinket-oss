@@ -2,6 +2,7 @@
 # Base image: Ubuntu
 # Installs: Java 8
   
+# SECURITY: java shell base image audited per AAP §0.5.2 Strategy F / R6 (Corretto 8 LTS through 2030)
 FROM amazoncorretto:8
 
 RUN yum -y install python3 \
