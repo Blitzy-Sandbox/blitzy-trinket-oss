@@ -84,6 +84,9 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.4/socket.io.min.js"></script>
 
   {% if not outputOnly %}
+  {# SECURITY: All `component(...) | safe` and `cachify_js(...) | safe` sites in this file emit server-controlled asset URLs and bundled JS — Class A known-safe context per AAP §0.5.2 Strategy H / R8 / OWASP A03 #}
+  {# SECURITY: component() resolves URLs from server-side config.app.components; cachify_js() emits <script> tags for server-built bundles; NEITHER takes user input #}
+  {# SECURITY: | safe required because these filters output HTML <link>/<script> tags directly; auto-escape would HTML-encode the angle brackets #}
   {{ component('ace-builds', 'src-min-noconflict/ace.js') | safe }}
   {{ component('ace-builds', 'src-min-noconflict/ext-modelist.js') | safe }}
   {{ component('ace-builds', 'src-min-noconflict/ext-language_tools.js') | safe }}
