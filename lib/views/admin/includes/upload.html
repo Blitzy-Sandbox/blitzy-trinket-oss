@@ -1,4 +1,7 @@
+{# SECURITY: CSRF synchronizer-token via @hapi/crumb per AAP §0.5.2 Strategy E / R5 / OWASP A01 (CWE-352) #}
+{# SECURITY: /admin/upload POST receives crumb: true in config/routes.js; form must include the per-session token to pass CSRF validation #}
 <form method="post" action="/admin/upload">
+  <input type="hidden" name="crumb" value="{{ crumb }}">
   <div class="row">
     <div class="small-12 columns">
       <label>Paste info in CSV format. Required fields: Email, Password. Optional fields: Username, Name
