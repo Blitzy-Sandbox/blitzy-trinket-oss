@@ -9,7 +9,7 @@ pygal==3.0.0
 pygal_maps_world==1.0.2
 pygal_maps_fr==1.1.0
 pygal_maps_ch==1.0.1
-cairosvg==2.5.2
+cairosvg==2.7.1  # SECURITY: CVE-2023-27586 (CVSS 9.9, High/Critical) remediated per AAP §0.5.2 Strategy A / R1 — upgraded from 2.5.2 to 2.7.1 (SSRF/DoS via crafted SVG file accessing external/inner-host resources; fixed in 2.7.0 which disables external resource access by default)
 tinycss==0.4
 cssselect==1.1.0
 bokeh==2.4.3
