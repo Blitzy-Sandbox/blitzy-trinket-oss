@@ -192,16 +192,49 @@ checkpoint and finalized at the last checkpoint.
   PM2 writes logs to the filesystem; this is a documented Minimal Change Clause
   trade-off per AAP §0.6.1: "apply read_only where compatible with PM2 logs".
 - **R6 — Shell Container Hardening (`serverside/docker-compose.yml`)**
-  *(Planned: CP2-CP3)*: Will promote shell container hardening directives from
+  *(Landed at CP2)*: Promoted shell container hardening directives from
   comments to defaults in `serverside/docker-compose.yml` for every shell
-  service (`python3-shell`, `java-shell`, `r-shell`, `pygame-worker`):
-  `mem_limit: 500m`, `mem_reservation: 375m`, `cpus: 1.0`, `cpu_shares: 512`,
-  `pids_limit: 50`, `read_only: true`, `tmpfs: /tmp:size=100m`,
-  `security_opt: [no-new-privileges:true]`, and `cap_drop: [ALL]`. Operator
-  opt-out is preserved via removal of the directives. See `serverside/README.md`
-  for the full documented hardening posture. **Status at CP1:**
-  `serverside/docker-compose.yml` is held at the pre-remediation state; shell
-  hardening lands at CP2-CP3 alongside the manager-tier dependency upgrades.
+  service. **Text shells** (`python3-shell`, `java-shell`, `r-shell`) carry
+  the full nine-directive set: `mem_limit: 500m`, `mem_reservation: 375m`,
+  `cpus: 1.0`, `cpu_shares: 512`, `pids_limit: 50`, `read_only: true`,
+  `tmpfs: /tmp:size=100m`, `security_opt: [no-new-privileges:true]`, and
+  `cap_drop: [ALL]`. **Pygame worker** (`pygame-worker`) carries differential
+  hardening: `mem_limit: 1g`, `mem_reservation: 750m`, `cpus: 2.0`,
+  `cpu_shares: 512`, `pids_limit: 100`, `security_opt:
+  [no-new-privileges:true]`, and `cap_drop: [ALL]`; `read_only` and `tmpfs`
+  are intentionally omitted because Xvfb (`/tmp/.X11-unix/`), TightVNC
+  (`~/.vnc/`), Supervisor (`/var/run/supervisor/`, `/var/log/supervisor/`),
+  and noVNC websockify each write to multiple paths that conflict with strict
+  read-only root + a single small tmpfs (capability drop and resource limits
+  remain to provide layered defense per AAP §0.8.3). Manager services
+  (`nginx`, `python3-manager`, `java-manager`, `r-manager`, `pygame-manager`)
+  remain unchanged — per AAP §6.4.5 these are trusted-zone Node.js
+  orchestrators and are not adversarial. **Operator opt-out** is preserved on a
+  granular per-directive basis: operators may remove or comment any individual
+  directive on any shell service to relax that specific limit while keeping
+  the remaining defenses intact. The opening comment block in
+  `serverside/docker-compose.yml` documents the opt-out pattern, and
+  [`serverside/README.md`](serverside/README.md) Security Hardening section
+  documents the threat each directive defends against and the trade-offs of
+  opting out. **Status at CP2:** Implemented in `serverside/docker-compose.yml`
+  lines 78–214 (text-shell blocks at lines 60–73, 99–112, 136–152;
+  pygame-worker block at lines 175–192) at commit `3aab45c`. Verified by
+  `docker inspect` of `HostConfig` (`Memory: 524288000` / 500 MB on text
+  shells; `Memory: 1073741824` / 1 GB on pygame-worker; `PidsLimit: 50` on
+  text shells; `PidsLimit: 100` on pygame-worker; `ReadonlyRootfs: true` on
+  text shells; `ReadonlyRootfs: false` on pygame-worker;
+  `SecurityOpt: ["no-new-privileges"]` on all four; `CapDrop: ["ALL"]` on all
+  four), runtime fork-bomb mitigation (200 background sleeps under
+  `pids_limit=50` cap at 51 processes with `Resource temporarily unavailable`
+  errors), runtime read-only verification (`/etc`, `/home`, `/var/log` writes
+  rejected with `Read-only file system` on text shells; pygame-worker writable
+  per differential), runtime no-new-privileges verification
+  (`/proc/self/status` `NoNewPrivs: 1`), runtime cap-drop verification
+  (`CapInh`/`CapPrm`/`CapEff`/`CapBnd`/`CapAmb` all `0000000000000000`), and
+  `docker compose --profile python3 --profile java --profile r --profile
+  pygame config -q` exit 0. Annotation discipline applied: 39
+  `# SECURITY:` annotations cover all 34 directive lines plus the opening
+  rationale block.
 - **R6 — Network Hardening (`serverside/nginx/nginx.conf`)**
   *(Planned: CP2-CP3)*: Will add `server_tokens off;` (suppress nginx version
   disclosure) and `add_header X-Content-Type-Options nosniff always;` (prevent
