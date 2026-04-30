@@ -560,16 +560,24 @@ routes = [
     html  : 'docs/colors.html'
   },
   {
-    // SECURITY: OAuth state parameter prevents CSRF on callback per AAP §0.5.2 Strategy E / R5 / OWASP A07
-    //          (state validation performed in lib/auth/passport.js GoogleStrategy)
+    // SECURITY: OAuth state parameter generated to prevent CSRF on callback per AAP §0.5.2
+    //          Strategy E / R5 / OWASP A07 / CWE-352 (Login CSRF). The active runtime
+    //          generation is in lib/controllers/auth.js `google` handler (crypto.randomBytes(32)
+    //          stored in request.yar.set('oauth_state', state) and echoed in the redirect URL).
+    //          The Passport GoogleStrategy `state: true` config in lib/auth/passport.js is
+    //          defense-in-depth only and currently DEAD CODE — see passport.js header.
     route : 'GET /auth/google auth.google',
     config : {
       auth : false
     }
   },
   {
-    // SECURITY: OAuth callback validates state parameter to prevent CSRF per AAP §0.5.2 Strategy E / R5
-    //          (state validation in lib/controllers/auth.js googleCallback handler)
+    // SECURITY: OAuth callback validates state parameter to prevent CSRF per AAP §0.5.2
+    //          Strategy E / R5 / OWASP A07 / CWE-352 (Login CSRF). The active runtime
+    //          validation is in lib/controllers/auth.js `googleCallback` handler — retrieves
+    //          the expected state from request.yar.get('oauth_state'), compares to
+    //          request.query.state via crypto.timingSafeEqual after a length pre-check, and
+    //          clears the stored state in both success and failure paths to prevent replay.
     route : 'GET /auth/google/callback auth.googleCallback',
     cookie  : true,
     success: {

@@ -90,7 +90,12 @@ db:
 # OPTIONAL: Google OAuth
 # =============================================================================
 # SECURITY: Google OAuth callback validates state parameter to prevent CSRF
-#           per AAP §0.5.2 Strategy E / R5 / OWASP A07 (state validation in lib/auth/passport.js)
+#           per AAP §0.5.2 Strategy E / R5 / OWASP A07 / CWE-352 (Login CSRF). State is
+#           generated server-side in lib/controllers/auth.js `google` handler via
+#           crypto.randomBytes(32) and stored in the user's Yar session; the
+#           `googleCallback` handler validates it via crypto.timingSafeEqual after a
+#           length pre-check, and clears the stored state in both success and failure
+#           paths to prevent replay.
 
 # app:
 #   auth:
