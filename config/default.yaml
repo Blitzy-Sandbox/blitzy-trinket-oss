@@ -380,15 +380,24 @@ app:
         default: 'http://localhost:8080/pygame'
   # SECURITY: xframeDeny list — paths covered by X-Frame-Options: deny header
   #           per app.js onPreResponse extension (AAP §0.5.2 Strategy D / R4 / OWASP A05 Security Misconfiguration)
-  # SECURITY: Extended to /admin and /admin/* per AAP §0.6.3 to prevent clickjacking on admin pages
+  # SECURITY: Matcher contract (per app.js:154 onPreResponse extension):
+  #   - Plain entries (e.g., '/login') match the request pathname exactly.
+  #   - Glob entries ending in '/*' (e.g., '/admin/*') match any request pathname
+  #     that begins with the entry's prefix (the slice before the trailing '*').
+  #     E.g., '/admin/*' matches '/admin/users', '/admin/courses', '/admin/upload'
+  #     served by the GET /admin/{adminPage*} page route in config/routes.js.
+  #   This contract is enforced by Array.prototype.some() in app.js — see the
+  #   SECURITY annotation block at app.js:154 for the implementation.
+  # SECURITY: Extended to /admin (exact, bare admin index) and /admin/* (glob, admin
+  #           sub-paths) per AAP §0.6.3 to prevent clickjacking on admin pages.
   xframeDeny:
     - '/'
     - '/login'
     - '/signup'
     - '/contact'
     - '/educators'
-    - '/admin'           # SECURITY: extended xframeDeny per AAP §0.5.2 Strategy D / R4
-    - '/admin/*'         # SECURITY: extended xframeDeny to admin sub-paths per AAP §0.6.3
+    - '/admin'           # SECURITY: exact match — covers the bare /admin index page (AAP §0.5.2 Strategy D / R4)
+    - '/admin/*'         # SECURITY: glob match — covers all admin sub-paths via app.js:154 prefix matcher (AAP §0.6.3)
 workers:
   trinkets:
     outputDir: '/tmp/' # should be readable by nginx

@@ -151,7 +151,16 @@ const init = async () => {
   // Add onPreResponse extension for cache headers and error pages
   server.ext('onPreResponse', (request, h) => {
     const response = request.response;
-    const addXFrame = config.app.xframeDeny && config.app.xframeDeny.indexOf(request.url.pathname) >= 0;
+    // SECURITY: xframeDeny matcher supports exact paths (e.g., '/login') AND '/<path>/*'
+    //   glob entries (e.g., '/admin/*' matches '/admin/users', '/admin/courses') so
+    //   X-Frame-Options: deny applies to admin sub-paths served by the
+    //   GET /admin/{adminPage*} page route. Per AAP §0.5.2 Strategy D / §0.6.3 / R4 /
+    //   OWASP A05 (Security Misconfiguration — clickjacking prevention).
+    //   Contract documented in config/default.yaml xframeDeny block.
+    const pathname = request.url.pathname;
+    const addXFrame = config.app.xframeDeny && config.app.xframeDeny.some((entry) =>
+      entry.endsWith('/*') ? pathname.startsWith(entry.slice(0, -1)) : entry === pathname
+    );
 
     if (response.isBoom) {
       const statusCode = response.output.statusCode;
