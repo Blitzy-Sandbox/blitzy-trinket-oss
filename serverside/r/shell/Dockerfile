@@ -49,5 +49,17 @@ RUN npm install >/dev/null 2>&1
 ENV R_DEFAULT_DEVICE png
 ENV R_LIBS_USER /usr/local/lib/R/site-library
 
+# SECURITY: Constrain OpenBLAS thread pool to 4 threads (default is host CPU count, often 128 on
+# modern hosts). Without this constraint, R's OpenBLAS attempts pthread_create() up to 128 times
+# at startup and fails with EAGAIN under the docker-compose.yml `pids_limit: 50` hardening directive,
+# triggering an irrecoverable segfault deep in OpenBLAS initialization. 4 threads is sufficient for
+# typical interactive R workloads and fits comfortably under the 50-PID cap together with PM2 +
+# Node.js + R interpreter children. Equivalent to `Sys.setenv(OPENBLAS_NUM_THREADS=4)` at boot.
+# AAP §0.5.2 Strategy F (R6) - resolves QA Issue 5 (pids_limit:50 segfaults OpenBLAS).
+ENV OPENBLAS_NUM_THREADS=4
+# SECURITY: Constrain OMP and MKL thread pools (used by some BLAS variants and other R packages)
+# to 4 threads for the same pids_limit: 50 compatibility guarantee.
+ENV OMP_NUM_THREADS=4
+
 EXPOSE 8010
 CMD ["pm2-runtime", "start", "server.js"]
