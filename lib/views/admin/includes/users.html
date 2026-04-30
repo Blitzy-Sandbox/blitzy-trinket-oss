@@ -101,10 +101,13 @@
         <a id="admin-roles" class="button small" data-userid="{{ data._id }}" data-username="{{ data.username }}">Change Roles</a>
       </li>
       <li class="content {% if active == 'json' %}active{% endif %}" id="json">
-        {# SECURITY: admin-only JSON dump via | json("pretty") | safe — Class A known-safe context per AAP §0.5.2 Strategy H / R8 / OWASP A03 #}
-        {# SECURITY: data is server-side Mongoose document serialized via JSON.stringify; admin pages enforce isAdmin pre-handler per AAP §0.5.2 Strategy G / R7 #}
-        {# SECURITY: | safe required because <pre> renders JSON-encoded output; auto-escape would double-encode special chars and corrupt the rendered JSON view #}
-        <pre>{{ data | json("pretty") | safe }}</pre>
+        {# SECURITY: admin-only JSON dump via | escapeJSON | json("pretty") | safe pipeline per AAP §0.5.2 Strategy H / R8 / OWASP A03 (CWE-79 Stored XSS defense) #}
+        {# SECURITY: data is a Mongoose User document containing user-controlled fields (name, fullname, email, username) populated from signup form submissions — Class A admin-only access narrows audience but does NOT mitigate XSS payload execution in admin context #}
+        {# SECURITY: | escapeJSON filter (lib/util/nunjucks.js) recursively HTML-escapes ALL string values inside the data structure (lodash.escape on <, >, &, ', ") — prevents user-controlled <script>/<img> from being parsed as DOM elements inside the <pre> block #}
+        {# SECURITY: | json("pretty") then JSON-stringifies the (now-escaped) structure for human-readable admin inspection #}
+        {# SECURITY: | safe is required because the JSON output contains structural characters (quotes, braces, colons) that auto-escape would HTML-encode and corrupt the rendered JSON view #}
+        {# SECURITY: This pipeline mirrors the project's correct pattern in lib/views/embed/base.html line 91 (trinket/draft/userSettings bootstrap) #}
+        <pre>{{ data | escapeJSON | json("pretty") | safe }}</pre>
       </li>
     </ul>
   </div>
