@@ -134,6 +134,14 @@ The manager randomly selects a shell for each connection.
 
 ## Production Deployment
 
+> **Security Posture (per AAP §0.5.2 Strategy F / R6):** The serverside execution
+> platform now ships with **default-on container hardening** for shell containers
+> running untrusted learner code. See the [Security Hardening](#security-hardening)
+> subsection below for the active defaults, the threat each directive mitigates,
+> and granular [Operator Opt-Out](#operator-opt-out) guidance. Operators upgrading
+> from a pre-1.1.0 deployment do **not** need to take any action to enable
+> hardening — the defaults apply automatically.
+
 ### SSL/TLS Setup
 
 For production, you should enable HTTPS. Two options:
@@ -196,19 +204,20 @@ directive defends against and what trade-off opting out incurs.
 ##### Text shells (`python3-shell`, `java-shell`, `r-shell`)
 
 ```yaml
+# SECURITY: Hardening defaults are now ENABLED for adversarial-zone shell containers
 python3-shell:
-  mem_limit: 500m              # Hard memory cap (mitigates memory exhaustion / OOM DoS)
-  mem_reservation: 375m        # Soft memory limit for scheduling
-  cpus: 1.0                    # CPU bound (mitigates CPU exhaustion)
-  cpu_shares: 512              # Relative CPU weight (limits scheduling priority)
-  pids_limit: 50               # PID limit (mitigates fork bombs)
-  read_only: true              # Read-only root filesystem (prevents tamper / persistence)
+  mem_limit: 500m              # SECURITY: Hard memory cap (mitigates memory exhaustion / OOM DoS)
+  mem_reservation: 375m        # SECURITY: Soft memory limit for scheduling
+  cpus: 1.0                    # SECURITY: CPU bound (mitigates CPU exhaustion)
+  cpu_shares: 512              # SECURITY: Relative CPU weight (limits scheduling priority)
+  pids_limit: 50               # SECURITY: PID limit (mitigates fork bombs)
+  read_only: true              # SECURITY: Read-only root filesystem (prevents tamper / persistence)
   tmpfs:
-    - /tmp:size=100m           # Writable /tmp with size cap (limits scratch space abuse)
+    - /tmp:size=100m           # SECURITY: Writable /tmp with size cap (limits scratch space abuse)
   security_opt:
-    - no-new-privileges:true   # Block setuid privilege escalation
+    - no-new-privileges:true   # SECURITY: Block setuid privilege escalation
   cap_drop:
-    - ALL                      # Drop all Linux capabilities (least privilege)
+    - ALL                      # SECURITY: Drop all Linux capabilities (least privilege)
 ```
 
 | Directive | Threat mitigated | Default | Trade-off when relaxed |
@@ -231,17 +240,20 @@ omitted** for this service because they conflict with the graphical stack's
 runtime write requirements:
 
 ```yaml
+# SECURITY: Differential hardening — read_only/tmpfs OMITTED (graphical stack writes)
 pygame-worker:
-  mem_limit: 1g                # Higher cap for graphical environment
-  mem_reservation: 750m
-  cpus: 2.0                    # Higher CPU bound for Xvfb + Pygame rendering
-  cpu_shares: 512
-  pids_limit: 100              # Higher PID cap for Supervisor + child processes
+  mem_limit: 1g                # SECURITY: Hard memory cap for graphical environment
+  mem_reservation: 750m        # SECURITY: Soft memory limit for scheduling
+  cpus: 2.0                    # SECURITY: Higher CPU bound for Xvfb + Pygame rendering
+  cpu_shares: 512              # SECURITY: Relative CPU weight (limits scheduling priority)
+  pids_limit: 100              # SECURITY: Higher PID cap for Supervisor + child processes
   security_opt:
-    - no-new-privileges:true   # Retained — no graphical conflict
+    - no-new-privileges:true   # SECURITY: Block setuid privilege escalation (no graphical conflict)
   cap_drop:
-    - ALL                      # Retained — no graphical conflict
-  # NOTE: read_only and tmpfs are intentionally OMITTED
+    - ALL                      # SECURITY: Drop all Linux capabilities (no graphical conflict)
+  # NOTE: read_only and tmpfs are intentionally OMITTED for the pygame-worker
+  #       because the graphical stack (Xvfb, TightVNC, Supervisor, noVNC) writes
+  #       to multiple paths (/tmp/.X11-unix, ~/.vnc, /var/run/supervisor, etc.)
 ```
 
 `read_only: true` and `tmpfs: /tmp:size=100m` are omitted because:
@@ -304,12 +316,23 @@ but hardening must be the default posture for an educational platform executing
 untrusted learner code"*, the opt-out is granular and preserved — operators are
 not forced into an all-or-nothing choice.
 
-#### Production Docker Run
+#### Production Docker Run (non-Compose deployments)
+
+> **Note:** This section applies only to operators **NOT** using Docker Compose.
+> If you use `docker-compose.yml`, the defaults documented above already include
+> these flags by default — see [Docker Compose (default-on hardening)](#docker-compose-default-on-hardening)
+> above. The flags below are the equivalent `docker run` invocations for
+> non-Compose deployments and are included for parity.
 
 For production deployments outside compose, apply the equivalent flags directly
 to `docker run`:
 
 ```bash
+# SECURITY: docker run flags equivalent to the docker-compose.yml default-on
+# hardening (mem_limit, mem_reservation, cpus, cpu_shares, pids_limit,
+# read_only, tmpfs, no-new-privileges, cap_drop ALL). Each flag below mitigates
+# the same threat its docker-compose.yml counterpart does — see the directive
+# table above for the per-flag threat model and opt-out trade-offs.
 docker run -d \
   -p 8010:8010 \
   --restart unless-stopped \
