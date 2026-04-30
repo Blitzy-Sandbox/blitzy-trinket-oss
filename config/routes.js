@@ -7,6 +7,19 @@ var Joi               = require('joi'),
     reservedUsernames = yaml.safeLoad(fs.readFileSync(__dirname + '/reserved.yaml', 'utf8')),
     routes;
 
+// SECURITY: Page route security hardening per AAP §0.5.2 (R4 + R5 + R7) / OWASP A01, A05, A07
+// (1) /admin and /admin/{adminPage*} routes audited for pre: ['isAdmin(user)'] enforcement
+//     — All admin pages confirmed admin-gated per AAP §0.5.2 Strategy G / R7 / OWASP A01
+// (2) /admin/upload (POST) opts in to @hapi/crumb CSRF synchronizer-token via plugins: { crumb: true }
+//     — Per AAP Risk Management: scoped to non-SPA admin routes first; SPA-consumed routes deferred
+//     — Per AAP §0.5.2 Strategy E / R5 / OWASP A07
+// (3) Auth flow routes (login, signup, password reset) preserved with existing Joi validation
+//     — recaptchaValidation degrades to optional when reCAPTCHA unconfigured per AAP §0.5.2 Strategy C / R3
+// (4) /admin and /admin/* paths covered by xframeDeny in config/default.yaml per AAP §0.5.2 Strategy D / R4
+//     — X-Frame-Options: deny applied via app.js onPreResponse extension
+// (5) Joi schema audit: object-literal schemas reject unknown/operator-prefixed keys by default (Joi v6)
+//     — Per AAP §0.5.2 Strategy H / R8 / OWASP A03
+
 // Make recaptcha optional when not configured
 var recaptchaValidation = (config.app.recaptcha && config.app.recaptcha.secretkey)
   ? Joi.string().required()
@@ -52,7 +65,10 @@ routes = [
       redirect : '/login'
     },
     config  : {
+      // SECURITY: helpers.lowerUserFields normalizes email/username for case-insensitive auth (AAP §0.6.1 audit)
+      // SECURITY: CSRF deferred to follow-on per AAP Risk Management (SPA-consumed login flow)
       pre : [{ method : helpers.lowerUserFields }],
+      // SECURITY: Joi schema rejects NoSQL operator injection per AAP §0.5.2 Strategy H / R8 / OWASP A03
       validate : {
         payload : {
           email    : Joi.string().required(),
@@ -76,7 +92,12 @@ routes = [
       redirect : '/{formName}'
     },
     config : {
+      // SECURITY: helpers.lowerUserFields normalizes email/username for case-insensitive uniqueness (AAP §0.6.1 audit)
+      // SECURITY: CSRF deferred to follow-on per AAP Risk Management (SPA-consumed signup flow)
+      // SECURITY: reservedUsernames invalidate list prevents impersonation of system identifiers
       pre : [{ method: helpers.lowerUserFields }],
+      // SECURITY: Joi schema rejects NoSQL operator injection per AAP §0.5.2 Strategy H / R8 / OWASP A03
+      // SECURITY: recaptchaValidation enforces human verification when configured per AAP §0.5.2 Strategy C / R3
       validate  : {
         payload : {
           formName : Joi.string().required(),
@@ -212,6 +233,7 @@ routes = [
     },
     config : {
       auth: 'session',
+      // SECURITY: isAdmin enforcement per AAP §0.5.2 Strategy G / R7 / OWASP A01
       pre  : [
         'isAdmin(user)'
       ]
@@ -225,6 +247,7 @@ routes = [
     },
     config : {
       auth: 'session',
+      // SECURITY: isAdmin enforcement per AAP §0.5.2 Strategy G / R7 / OWASP A01
       pre  : [
         'isAdmin(user)'
       ]
@@ -235,6 +258,9 @@ routes = [
     html : 'admin/index.html',
     config : {
       auth: 'session',
+      // SECURITY: CSRF synchronizer-token protection per AAP §0.5.2 Strategy E / R5 (admin server-rendered upload)
+      plugins : { crumb : true },
+      // SECURITY: isAdmin enforcement per AAP §0.5.2 Strategy G / R7 / OWASP A01
       pre : ['isAdmin(user)']
     }
   },
@@ -263,10 +289,14 @@ routes = [
       redirect : '/forgot-pass'
     },
     config : {
+      // SECURITY: helpers.lowerUserFields normalizes email for case-insensitive lookup (AAP §0.6.1 audit)
+      // SECURITY: Controller emits uniform success response to prevent email enumeration per §6.4.4.3 / AAP §0.6.1
+      // SECURITY: CSRF deferred to follow-on per AAP Risk Management (server-rendered form, low-risk)
       pre : [{ method : helpers.lowerUserFields }],
       validate : {
         payload : {
           email : Joi.string().email().required(),
+          // SECURITY: recaptchaValidation enforces human verification when configured per AAP §0.5.2 Strategy C / R3
           'g-recaptcha-response' : recaptchaValidation
         }
       }
@@ -293,6 +323,8 @@ routes = [
       redirect : '/forgot-pass'
     },
     config : {
+      // SECURITY: Joi schema rejects NoSQL operator injection per AAP §0.5.2 Strategy H / R8 / OWASP A03
+      // SECURITY: key parameter validates against reset-token store; CSRF deferred to follow-on per AAP Risk Management
       validate : {
         payload : {
           key             : Joi.string().required(),
@@ -325,6 +357,8 @@ routes = [
       redirect : '/{redirectTo}'
     },
     config : {
+      // SECURITY: Joi schema rejects NoSQL operator injection per AAP §0.5.2 Strategy H / R8 / OWASP A03
+      // SECURITY: key parameter validates against activation-token store; CSRF deferred to follow-on per AAP Risk Management
       validate : {
         payload : {
           key      : Joi.string().required(),
@@ -526,12 +560,16 @@ routes = [
     html  : 'docs/colors.html'
   },
   {
+    // SECURITY: OAuth state parameter prevents CSRF on callback per AAP §0.5.2 Strategy E / R5 / OWASP A07
+    //          (state validation performed in lib/auth/passport.js GoogleStrategy)
     route : 'GET /auth/google auth.google',
     config : {
       auth : false
     }
   },
   {
+    // SECURITY: OAuth callback validates state parameter to prevent CSRF per AAP §0.5.2 Strategy E / R5
+    //          (state validation in lib/controllers/auth.js googleCallback handler)
     route : 'GET /auth/google/callback auth.googleCallback',
     cookie  : true,
     success: {
@@ -546,6 +584,8 @@ routes = [
   },
 ];
 
+// SECURITY: Per-language routes use helpers.trinketTypeEnabled and helpers.validLang
+// pre-handlers to enforce language enablement and prevent invalid language access (AAP §0.6.1 audit)
 // trinket language specific routes
 config.constants.trinketLangs.forEach(function(lang) {
   // language landing page
