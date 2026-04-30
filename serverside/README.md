@@ -178,27 +178,136 @@ nginx:
 
 ### Security Hardening
 
-The shell containers run untrusted user code. Apply these security measures:
+The shell containers run untrusted user code. Per the AAP §6.4.5 zone definitions,
+shell containers are classified as the **Code Execution Zone — Adversarial**, and
+the educational platform's threat model requires hardening as the **default
+posture** (rather than an operator opt-in). As of this release, every shell
+hardening directive in `docker-compose.yml` is **enabled by default**; operators
+may opt out (see [Operator Opt-Out](#operator-opt-out) below) on a
+directive-by-directive basis if their environment requires it.
 
-#### Docker Compose (recommended settings)
+#### Docker Compose (default-on hardening)
 
-Uncomment the security options in `docker-compose.yml`:
+The directives below are **already active** in `docker-compose.yml` for every
+shell service (`python3-shell`, `java-shell`, `r-shell`, `pygame-worker`). No
+operator action is required to enable them. The table documents what each
+directive defends against and what trade-off opting out incurs.
+
+##### Text shells (`python3-shell`, `java-shell`, `r-shell`)
 
 ```yaml
 python3-shell:
-  mem_limit: 500m           # Hard memory limit
-  mem_reservation: 375m     # Soft limit for scheduling
-  cpus: 1.0                 # Limit to 1 CPU core
-  cpu_shares: 512           # Relative CPU weight
-  pids_limit: 50            # Prevent fork bombs
-  read_only: true           # Read-only root filesystem
+  mem_limit: 500m              # Hard memory cap (mitigates memory exhaustion / OOM DoS)
+  mem_reservation: 375m        # Soft memory limit for scheduling
+  cpus: 1.0                    # CPU bound (mitigates CPU exhaustion)
+  cpu_shares: 512              # Relative CPU weight (limits scheduling priority)
+  pids_limit: 50               # PID limit (mitigates fork bombs)
+  read_only: true              # Read-only root filesystem (prevents tamper / persistence)
   tmpfs:
-    - /tmp:size=100m        # Writable /tmp with size limit
+    - /tmp:size=100m           # Writable /tmp with size cap (limits scratch space abuse)
+  security_opt:
+    - no-new-privileges:true   # Block setuid privilege escalation
+  cap_drop:
+    - ALL                      # Drop all Linux capabilities (least privilege)
 ```
+
+| Directive | Threat mitigated | Default | Trade-off when relaxed |
+|-----------|-----------------|---------|------------------------|
+| `mem_limit` | Memory-exhaustion DoS, OOM kill of the host | `500m` | Larger learner workloads (e.g., NumPy datasets) may OOM-kill at 500 MB; relax to `1g` or higher |
+| `mem_reservation` | Scheduling priority for the shell | `375m` | None — informational soft limit |
+| `cpus` | CPU-exhaustion DoS | `1.0` | Compute-heavy coursework (e.g., scipy regressions) runs slower; relax to `2.0` |
+| `cpu_shares` | Relative scheduling weight | `512` | Lower priority under contention; raise to `1024` for parity with system processes |
+| `pids_limit` | Fork bombs, process-exhaustion DoS | `50` | Multiprocessing-heavy code (e.g., Python `multiprocessing.Pool(n)` for n>40) may hit the cap; relax to `100` or `200` |
+| `read_only` | Persistence of malicious payloads, runtime tampering of installed packages | `true` | Code that writes outside `/tmp` (e.g., R `~/.cache`, Python `~/.matplotlib`) returns `EROFS`; remove this directive **or** add an additional `tmpfs:` mount for the affected path |
+| `tmpfs /tmp:size=100m` | Scratch-space exhaustion | `100m` | Code generating large temp files (>100 MB matplotlib plots, large CSV scratch) hits `ENOSPC`; raise the size or remove and rely on the named-volume mount at `/tmp/sessions` |
+| `security_opt: no-new-privileges` | setuid privilege escalation, ptrace exploits | enabled | None known for trinket workloads — opting out is **strongly discouraged** |
+| `cap_drop: ALL` | Linux capability abuse (e.g., `CAP_NET_RAW` raw sockets, `CAP_SYS_ADMIN` mount/unshare) | enabled | Code requiring network capabilities (e.g., raw ICMP) fails; add specific capabilities back via `cap_add: [NET_RAW]` rather than removing the drop |
+
+##### Pygame worker (`pygame-worker`) — differential hardening
+
+The pygame worker runs Xvfb + TightVNC + noVNC + websockify + Supervisor as a
+graphical execution environment. Two hardening directives are **intentionally
+omitted** for this service because they conflict with the graphical stack's
+runtime write requirements:
+
+```yaml
+pygame-worker:
+  mem_limit: 1g                # Higher cap for graphical environment
+  mem_reservation: 750m
+  cpus: 2.0                    # Higher CPU bound for Xvfb + Pygame rendering
+  cpu_shares: 512
+  pids_limit: 100              # Higher PID cap for Supervisor + child processes
+  security_opt:
+    - no-new-privileges:true   # Retained — no graphical conflict
+  cap_drop:
+    - ALL                      # Retained — no graphical conflict
+  # NOTE: read_only and tmpfs are intentionally OMITTED
+```
+
+`read_only: true` and `tmpfs: /tmp:size=100m` are omitted because:
+
+- **Xvfb** writes to `/tmp/.X11-unix/` (X11 socket directory)
+- **TightVNC** writes to `~/.vnc/` (VNC password and PID files)
+- **Supervisor** writes to `/var/run/supervisor/` and `/var/log/supervisor/` (state and logs)
+- **noVNC websockify** writes log files
+
+These multi-path writes conflict with strict read-only root + a single small
+`/tmp` tmpfs. Capability drop and resource limits remain to provide layered
+defense per AAP §0.8.3 — the pygame worker still cannot escalate privileges,
+fork-bomb the host, or exhaust memory. Future hardening of the pygame worker
+will require either narrower writable mounts for each subsystem path **or** a
+larger tmpfs that covers all four subsystems' write requirements.
+
+#### Operator Opt-Out
+
+To relax a single directive (for example, to allow more memory for compute-heavy
+coursework), edit `docker-compose.yml` and **remove or comment** the directive
+on the affected service. The remaining directives stay in effect:
+
+```yaml
+# Example: remove the 500 MB cap on python3-shell while keeping all other defenses.
+python3-shell:
+  build: ./python/shell
+  profiles: ["python3"]
+  expose:
+    - "8010"
+  volumes:
+    - python-sessions:/tmp/sessions
+  # mem_limit: 500m              # ← OPT-OUT: removed to allow unbounded memory
+  mem_reservation: 375m
+  cpus: 1.0
+  cpu_shares: 512
+  pids_limit: 50
+  read_only: true
+  tmpfs:
+    - /tmp:size=100m
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+```
+
+To relax `read_only: true` (for example, if R packages need `~/.cache` writes
+at runtime and you do not want to add a granular tmpfs mount):
+
+```yaml
+r-shell:
+  # ... other directives ...
+  # read_only: true              # ← OPT-OUT: removed to allow root-fs writes
+  tmpfs:
+    - /tmp:size=100m
+  # ... remaining hardening intact ...
+```
+
+Per AAP §0.5.2 Strategy F (R6) and the user directive *"operators can opt out
+but hardening must be the default posture for an educational platform executing
+untrusted learner code"*, the opt-out is granular and preserved — operators are
+not forced into an all-or-nothing choice.
 
 #### Production Docker Run
 
-For production deployments outside compose:
+For production deployments outside compose, apply the equivalent flags directly
+to `docker run`:
 
 ```bash
 docker run -d \
@@ -216,6 +325,10 @@ docker run -d \
   trinket/python3-shell:latest
 ```
 
+For the `pygame-worker` image, omit `--read-only` and `--tmpfs /tmp:size=100m`
+to match the differential hardening profile, and raise `--memory`, `--cpus`,
+and `--pids-limit` per the table above.
+
 #### Network Isolation
 
 Consider running shells in an isolated network with no external access:
@@ -230,6 +343,18 @@ services:
     networks:
       - shell-internal
 ```
+
+#### Historical: pre-1.1.0 opt-IN model
+
+Prior to release 1.1.0, the directives above shipped as commented-out examples
+in `docker-compose.yml` and operators were instructed to "uncomment the security
+options" to enable hardening. That opt-IN model was superseded by the default-on
+posture documented in this section. Operators upgrading from a pre-1.1.0
+deployment do **not** need to take any action to gain hardening — the new
+defaults apply automatically. Operators who previously left the directives
+commented and intentionally relied on un-hardened shell containers should
+review the [Operator Opt-Out](#operator-opt-out) section to selectively relax
+limits where needed.
 
 ### Environment-specific Configuration
 
