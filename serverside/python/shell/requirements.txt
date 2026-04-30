@@ -1,5 +1,5 @@
 beautifulsoup4==4.11.1
-lxml==4.9.1
+lxml==6.1.0  # SECURITY: CVE-2026-41066 (XXE in iterparse/ETCompatXMLParser, GHSA-vfmq-68hx-4jfw, HIGH) remediated per AAP §0.5.2 Strategy A / R1 — upgraded from 4.9.1 to 6.1.0 to align with serverside/pygame/worker/requirements.txt and resolve QA Issue 1 (4.9.1 still vulnerable to CVE-2026-41066)
 numpy==1.23.2
 scipy==1.9.0
 matplotlib==3.5.3
@@ -9,7 +9,7 @@ pygal==3.0.0
 pygal_maps_world==1.0.2
 pygal_maps_fr==1.1.0
 pygal_maps_ch==1.0.1
-cairosvg==2.7.1  # SECURITY: CVE-2023-27586 (CVSS 9.9, High/Critical) remediated per AAP §0.5.2 Strategy A / R1 — upgraded from 2.5.2 to 2.7.1 (SSRF/DoS via crafted SVG file accessing external/inner-host resources; fixed in 2.7.0 which disables external resource access by default)
+cairosvg==2.9.0  # SECURITY: CVE-2023-27586 (SSRF, GHSA-rwmf-w63j-p7gv, HIGH) and CVE-2026-31899 (recursive <use> exponential DoS, GHSA-f38f-5xpm-9r7c, HIGH) remediated per AAP §0.5.2 Strategy A / R1 — upgraded from 2.5.2 → 2.7.1 → 2.9.0 to align with serverside/pygame/worker/requirements.txt and resolve QA Issue 1 (2.7.1 still vulnerable to CVE-2026-31899)
 tinycss==0.4
 cssselect==1.1.0
 bokeh==2.4.3
@@ -24,7 +24,7 @@ seaborn==0.11.2
 exifread==3.0.0
 biopython==1.79
 ete3==3.1.2
-mysql-connector-python==8.0.33  # SECURITY: CVE-2022-1941 (CVSS 7.5, High) remediated per AAP §0.5.2 Strategy A / R1 — upgraded from 8.0.26 to 8.0.33 (DoS via Connector/Python improper input validation; affected 8.0.7-8.0.31)
+mysql-connector-python==9.1.0  # SECURITY: CVE-2024-21272 (Connector/Python takeover, GHSA-hgjp-83m4-h4fj, HIGH) remediated per AAP §0.5.2 Strategy A / R1 — upgraded from 8.0.26 → 8.0.33 → 9.1.0 to align with serverside/pygame/worker/requirements.txt and resolve QA Issue 1 (8.0.33 still vulnerable to CVE-2024-21272). Side benefit: 9.x dropped the protobuf<4 dependency, eliminating CVE-2025-4565 / CVE-2026-0994 transitive exposure on protobuf 3.20.3.
 sympy==1.10.1
 pytest==7.1.2
 networkx==2.6.3
