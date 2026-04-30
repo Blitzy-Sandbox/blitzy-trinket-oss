@@ -1,0 +1,418 @@
+# SECURITY: Automated security scanning workflow per AAP §0.5.2 Strategy I (R9 — Automated Security Testing)
+# SECURITY: This is the FIRST CI/CD configuration introduced into the repository per AAP §0.3.1
+# SECURITY: Encodes verification commands from AAP §0.10.1 (npm audit, Trivy, ESLint security, OWASP ZAP)
+# SECURITY: Produces raw input for Vulnerability Discovery Report (Deliverable #1, AAP §0.11.3)
+# SECURITY: Validates Security Test Suite (Deliverable #4, AAP §0.11.3) via test/security/ Mocha modules
+# SECURITY: Per Minimal Change Clause (AAP §0.1.2), this workflow ONLY covers security scanning;
+# SECURITY: broader CI pipeline (build, test, deploy) is operator-owned per AAP §0.9.2 / §6.6.6.1
+name: Security Scanning
+
+# SECURITY: Triggers cover PR validation, merge gating, weekly DAST, and ad-hoc audits
+# SECURITY: Per AAP §0.6.1: "weekly OWASP ZAP baseline scan against staging instance"
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    # SECURITY: Monday 06:00 UTC weekly schedule (before US business hours for triage window)
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+# SECURITY: Principle of least privilege per AAP §0.11.1; only grants permissions required by jobs
+permissions:
+  # SECURITY: Required for actions/checkout (read-only access to repository)
+  contents: read
+  # SECURITY: Required for SARIF upload to GitHub Code Scanning (Trivy results)
+  security-events: write
+  # SECURITY: Required for action invocation telemetry
+  actions: read
+
+# SECURITY: Cancel superseded runs on the same ref to reduce noise and resource usage
+concurrency:
+  group: security-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # SECURITY: Job 1 — npm audit on root package.json (Node 20 main app dependency tree)
+  # SECURITY: Per AAP §0.10.1 Security Verification Commands and AAP §0.11.4 success criteria (R1)
+  npm-audit-root:
+    name: npm audit (root - Node 20)
+    # SECURITY: Validate root package.json has zero Critical/High CVEs (AAP §0.10.1, R1)
+    # SECURITY: Per AAP §0.4.2: main app uses Node 20 (post-Dockerfile upgrade from node:16-bullseye)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        # SECURITY: Pinned major version @v4 ensures reproducible action invocation
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        # SECURITY: Node 20 matches Dockerfile node:20-bullseye base image (AAP §0.5.2 Strategy F / R6)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        # SECURITY: --legacy-peer-deps preserves peer-dep accommodations (AAP §0.3.2, Dockerfile line 31)
+        # SECURITY: Per AAP §0.7.2: "known peer-dependency conflicts must continue to be tolerated in CI"
+        run: npm ci --legacy-peer-deps
+
+      - name: Run npm audit (enforce zero Critical/High CVEs)
+        # SECURITY: Enforce zero Critical/High CVEs per AAP §0.11.4 success criteria (R1)
+        # SECURITY: Exit code is non-zero on Critical/High findings — gates pipeline
+        run: npm audit --audit-level=high
+
+      - name: Generate full audit JSON report (always)
+        # SECURITY: Capture full audit JSON for Vulnerability Discovery Report (Deliverable #1, AAP §0.11.3)
+        # SECURITY: `|| true` ensures report capture even when audit step previously failed
+        if: always()
+        run: npm audit --json > npm-audit-root.json || true
+
+      - name: Upload root audit report
+        # SECURITY: Persist audit artifact for Vulnerability Discovery Report deliverable
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-root-report
+          path: npm-audit-root.json
+          retention-days: 30
+          if-no-files-found: warn
+
+  # SECURITY: Job 2 — npm audit per serverside manager (Node 18 ESM, independent dependency tree)
+  # SECURITY: Per AAP §0.7.1: "Node 16 (main app) and Node 18 (managers) have separate dependency trees
+  # SECURITY: and must each be scanned independently"
+  npm-audit-managers:
+    name: npm audit (manager - Node 18)
+    # SECURITY: Validate each serverside/*/manager/package.json has zero Critical/High CVEs (AAP §0.10.1, R1)
+    # SECURITY: Per AAP §0.4.2: Managers use Node 18 ESM (different runtime from main app)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      # SECURITY: fail-fast disabled so all manager findings are surfaced (AAP §0.5.4 rollback strategy)
+      fail-fast: false
+      matrix:
+        # SECURITY: Per AAP §0.3.1: all four managers (python, r, java, pygame) scanned independently
+        manager: [python, r, java, pygame]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 18
+        # SECURITY: Node 18 matches manager runtime per AAP §0.4.2
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install ${{ matrix.manager }} manager dependencies
+        # SECURITY: Each manager has independent dependency tree (AAP §0.7.1)
+        # SECURITY: `npm install` used (not `ci`) because managers ship without lockfiles per setup logs
+        working-directory: serverside/${{ matrix.manager }}/manager
+        run: npm install --no-audit --no-fund
+
+      - name: Run npm audit on ${{ matrix.manager }} manager
+        # SECURITY: Enforce zero Critical/High CVEs in manager runtime (AAP §0.11.4 R1)
+        working-directory: serverside/${{ matrix.manager }}/manager
+        run: npm audit --audit-level=high
+
+      - name: Generate ${{ matrix.manager }} manager audit report
+        # SECURITY: Capture full audit JSON for Vulnerability Discovery Report (Deliverable #1)
+        if: always()
+        working-directory: serverside/${{ matrix.manager }}/manager
+        run: npm audit --json > ../../../npm-audit-${{ matrix.manager }}-manager.json || true
+
+      - name: Upload ${{ matrix.manager }} manager audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-${{ matrix.manager }}-manager-report
+          path: npm-audit-${{ matrix.manager }}-manager.json
+          retention-days: 30
+          if-no-files-found: warn
+
+  # SECURITY: Job 3 — Static Application Security Testing (SAST) via ESLint + eslint-plugin-security
+  # SECURITY: Per AAP §0.10.1: "npx eslint lib/ config/ serverside/*/manager/ --ext .js --no-fix"
+  eslint-security:
+    name: ESLint Security Scan
+    # SECURITY: Static analysis for security anti-patterns via eslint-plugin-security (AAP §0.10.1, R9)
+    # SECURITY: Per AAP §0.10.1: targets lib/, config/, serverside/*/manager/
+    # SECURITY: Per AAP Frontend Freeze Directive: public/js/ excluded via .eslintignore (AngularJS frozen ADR-5)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        # SECURITY: Node 20 matches main app runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        # SECURITY: --legacy-peer-deps preserves peer-dep accommodations (AAP §0.3.2)
+        run: npm ci --legacy-peer-deps
+
+      - name: Run ESLint with security plugin (JSON report)
+        # SECURITY: Generate machine-readable JSON output for Vulnerability Discovery Report (Deliverable #1)
+        # SECURITY: `continue-on-error: true` allows the human-readable run to also execute
+        if: always()
+        continue-on-error: true
+        run: |
+          npx eslint lib/ config/ \
+            serverside/python/manager/ \
+            serverside/r/manager/ \
+            serverside/java/manager/ \
+            serverside/pygame/manager/ \
+            --ext .js \
+            --no-fix \
+            --format json \
+            --output-file eslint-security-report.json
+
+      - name: Run ESLint with security plugin (human-readable, gating)
+        # SECURITY: Per AAP §0.10.1: "npx eslint lib/ config/ serverside/python/manager/ ... --ext .js --no-fix"
+        # SECURITY: Per AAP §0.11.4: "Zero Critical findings (no eval, hardcoded secrets, prototype pollution sinks)"
+        # SECURITY: Per AAP Frontend Freeze Directive: public/js/ excluded via .eslintignore (AngularJS frozen ADR-5)
+        run: |
+          npx eslint lib/ config/ \
+            serverside/python/manager/ \
+            serverside/r/manager/ \
+            serverside/java/manager/ \
+            serverside/pygame/manager/ \
+            --ext .js \
+            --no-fix
+
+      - name: Upload ESLint security report
+        # SECURITY: Persist ESLint findings for Vulnerability Discovery Report deliverable
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eslint-security-report
+          path: eslint-security-report.json
+          retention-days: 30
+          if-no-files-found: warn
+
+  # SECURITY: Job 4 — Container image vulnerability scanning via Aqua Trivy
+  # SECURITY: Per AAP §0.10.1: "trivy image --exit-code 1 --severity CRITICAL,HIGH"
+  # SECURITY: Validates Node 20 base image upgrade (R6) and shell image security
+  trivy-image-scan:
+    name: Trivy Container Scan (${{ matrix.image }})
+    # SECURITY: Container image vulnerability scanning per AAP §0.10.1 (R6 — Container & Network Hardening)
+    # SECURITY: Per AAP §0.5.2 Strategy F: validates Node 20 base image upgrade and shell image security
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      # SECURITY: fail-fast disabled so all image findings are surfaced (AAP §0.5.4 rollback strategy)
+      fail-fast: false
+      matrix:
+        # SECURITY: All five Trivy image targets per AAP §0.10.1 (main app + four shell images)
+        include:
+          - image: main-app
+            context: .
+            dockerfile: Dockerfile
+          - image: python-shell
+            context: serverside/python/shell
+            dockerfile: serverside/python/shell/Dockerfile
+          - image: java-shell
+            context: serverside/java/shell
+            dockerfile: serverside/java/shell/Dockerfile
+          - image: r-shell
+            context: serverside/r/shell
+            dockerfile: serverside/r/shell/Dockerfile
+          - image: pygame-worker
+            context: serverside/pygame/worker
+            dockerfile: serverside/pygame/worker/Dockerfile
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        # SECURITY: Buildx provides robust build isolation; required for advanced Docker features
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.image }} image
+        # SECURITY: Build image locally for Trivy scanning (AAP §0.10.1)
+        # SECURITY: `load: true` makes the built image available to the local Docker daemon
+        # SECURITY: No `push:` set — image is never pushed to a registry
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          tags: trinket-${{ matrix.image }}:scan
+          push: false
+          load: true
+          cache-from: type=gha,scope=trinket-${{ matrix.image }}
+          cache-to: type=gha,scope=trinket-${{ matrix.image }},mode=max
+
+      - name: Run Trivy scan on ${{ matrix.image }} (gating)
+        # SECURITY: Per AAP §0.10.1: "trivy image --exit-code 1 --severity CRITICAL,HIGH"
+        # SECURITY: Per AAP §0.11.4: enforce zero Critical/High OS-layer or npm CVEs
+        # SECURITY: `ignore-unfixed: true` excludes unfixable CVEs to reduce noise per Trivy best practices
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: trinket-${{ matrix.image }}:scan
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+          format: 'sarif'
+          output: 'trivy-${{ matrix.image }}.sarif'
+          ignore-unfixed: true
+
+      - name: Upload Trivy SARIF to GitHub Code Scanning
+        # SECURITY: Surface Trivy findings in GitHub Security tab (AAP §0.11.3 Deliverable #1)
+        # SECURITY: SARIF upload uses pinned major version @v3 for reproducibility
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-${{ matrix.image }}.sarif
+          category: trivy-${{ matrix.image }}
+
+      - name: Upload Trivy SARIF artifact
+        # SECURITY: Persist SARIF for Vulnerability Discovery Report and offline analysis
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-${{ matrix.image }}-sarif
+          path: trivy-${{ matrix.image }}.sarif
+          retention-days: 30
+          if-no-files-found: warn
+
+  # SECURITY: Job 5 — Run test/security/ Mocha suite + full regression test suite
+  # SECURITY: Per AAP §0.5.2 Strategy I (R9): "Create test/security/ suite with auth.test.js,
+  # SECURITY: access-control.test.js, injection.test.js, session.test.js, upload.test.js"
+  # SECURITY: Per AAP §0.11.3 Deliverable #4: validates the new test/security/ suite
+  security-test-suite:
+    name: Security Test Suite
+    # SECURITY: Run test/security/ Mocha suite (AAP §0.5.2 Strategy I / R9)
+    # SECURITY: Gate on dependency audit passing first to avoid testing on known-vulnerable deps
+    needs: npm-audit-root
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      # SECURITY: MongoDB required for Mongoose model integration tests in test/security/
+      mongodb:
+        image: mongo:5
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand(\"ping\")'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      NODE_ENV: test
+      CI: 'true'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        # SECURITY: --legacy-peer-deps preserves peer-dep accommodations (AAP §0.3.2)
+        run: npm ci --legacy-peer-deps
+
+      - name: Setup test configuration
+        # SECURITY: Use config/local.example.yaml as baseline test config (AAP §0.10 Environment Setup)
+        # SECURITY: Generate session password meeting 32-char boot guard (AAP §0.5.2 Strategy B / R2)
+        # SECURITY: The 32-char guard parallels app.js lines 50-66 existing session-password guard
+        run: |
+          cp config/local.example.yaml config/local.yaml
+          SESSION_PASSWORD=$(openssl rand -base64 48 | tr -d '\n')
+          MAIL_SECRET=$(openssl rand -base64 48 | tr -d '\n')
+          # Patch session cookie password into local.yaml to satisfy boot guard
+          # The exact YAML key path follows config/local.example.yaml structure
+          if grep -q 'cookieOptions' config/local.yaml; then
+            # Inject password under existing cookieOptions block
+            sed -i "s|password:.*|password: \"$SESSION_PASSWORD\"|" config/local.yaml || true
+          fi
+          # Persist as environment variables in case test setup reads from env
+          echo "SESSION_PASSWORD=$SESSION_PASSWORD" >> "$GITHUB_ENV"
+          echo "MAIL_SECRET=$MAIL_SECRET" >> "$GITHUB_ENV"
+          echo "Test configuration written to config/local.yaml"
+
+      - name: Wait for MongoDB readiness
+        # SECURITY: Ensure MongoDB service container is fully ready before running integration tests
+        run: |
+          for i in $(seq 1 30); do
+            if nc -z localhost 27017; then
+              echo "MongoDB is ready (attempt $i)"
+              exit 0
+            fi
+            echo "Waiting for MongoDB... (attempt $i)"
+            sleep 2
+          done
+          echo "MongoDB did not become ready within 60 seconds"
+          exit 1
+
+      - name: Run security test suite
+        # SECURITY: Per AAP §0.10.1: "mocha --recursive test/security/ --reporter spec --check-leaks"
+        # SECURITY: The `test:security` npm script is defined in package.json per AAP §0.10.1
+        run: npm run test:security
+
+      - name: Run full test suite (regression validation)
+        # SECURITY: Per AAP §0.11.4 success criteria: "Zero functional regression across all platform capabilities"
+        # SECURITY: Per AAP §0.5.4 rollback: "Revert immediately if any regression test suite gate fails"
+        run: npm test
+
+  # SECURITY: Job 6 — Weekly OWASP ZAP baseline scan against staging instance
+  # SECURITY: Per AAP §0.10.1: "docker run -t owasp/zap2docker-stable zap-baseline.py -t http://staging..."
+  # SECURITY: Operator-deferrable per AAP §0.6.1; skipped gracefully when STAGING_URL is not configured
+  zap-baseline-scan:
+    name: OWASP ZAP Baseline Scan (Weekly)
+    # SECURITY: Weekly DAST scan against staging per AAP §0.6.1 (R9, operator-deferrable)
+    # SECURITY: Per AAP §0.10.1: weekly OWASP ZAP baseline scan against staging instance
+    # SECURITY: Schedule-only condition prevents accidental scans on PR/push events
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check if STAGING_URL is configured
+        # SECURITY: Operator-deferrable per AAP §0.6.1; skip gracefully if no staging URL configured
+        # SECURITY: Per AAP §0.11.1 secrets management: only existing operator-deferred secret referenced
+        id: check-staging
+        env:
+          STAGING_URL: ${{ secrets.STAGING_URL }}
+        run: |
+          if [ -z "${STAGING_URL:-}" ]; then
+            echo "STAGING_URL secret not configured; ZAP scan will be skipped"
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "STAGING_URL is configured; ZAP scan will proceed"
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run OWASP ZAP Baseline Scan
+        # SECURITY: Per AAP §0.10.1: weekly OWASP ZAP baseline scan against staging
+        # SECURITY: Per AAP §0.5.2 Strategy I (R9): part of automated security testing infrastructure
+        # SECURITY: fail_action: false per AAP §0.11.3 Deliverable #1 — scan is informational; baseline tracked
+        if: steps.check-staging.outputs.configured == 'true'
+        uses: zaproxy/action-baseline@v0.10.0
+        with:
+          target: ${{ secrets.STAGING_URL }}
+          cmd_options: '-a'
+          fail_action: false
+          allow_issue_writing: true
+          artifact_name: zap-baseline-report
+
+      - name: Upload ZAP baseline report
+        # SECURITY: Persist ZAP findings (90-day retention) for security posture tracking
+        if: always() && steps.check-staging.outputs.configured == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-baseline-report-files
+          path: |
+            zap-baseline-report.html
+            report_html.html
+            report_json.json
+            report_md.md
+          retention-days: 90
+          if-no-files-found: warn
