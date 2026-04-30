@@ -1,6 +1,13 @@
 # Trinket Local Configuration
 # Copy this file to local.yaml: cp config/local.example.yaml config/local.yaml
 # IMPORTANT: Never commit local.yaml to version control
+# SECURITY: This file contains operator secrets. Per AAP §0.7.3, secrets remain in
+#           local.yaml (NOT environment variables). The .dockerignore excludes
+#           config/local.yaml, config/local.*.yaml, and config/production.yaml from
+#           the Docker build context to prevent secrets from being baked into images.
+# SECURITY: Per AAP §0.5.2 Strategy B / R2 — boot guards in app.js validate:
+#           (1) app.plugins.session.cookieOptions.password ≥ 32 characters (existing)
+#           (2) app.mail.secret ≥ 32 characters when app.mail is configured (NEW per remediation)
 
 # =============================================================================
 # REQUIRED
@@ -15,9 +22,14 @@ app:
   plugins:
     session:
       cookieOptions:
+        # SECURITY: Session cookie secret used by @hapi/yar to seal/unseal the session cookie
+        # SECURITY: Boot guard at app.js lines 50-66 refuses startup if password < 32 chars
+        # SECURITY: Generate a strong secret: openssl rand -base64 32
         # CHANGE THIS - must be at least 32 characters
         password: 'change-this-to-a-secure-password-min-32-chars!'
         domain: ''
+        # SECURITY: Set isSecure: true in production with HTTPS (cookie Secure flag)
+        # SECURITY: When isSecure: true, app.js onPreResponse appends SameSite=None; Secure (RFC 6265bis §5.4.7)
         isSecure: false  # Set true in production with HTTPS
 
 # =============================================================================
@@ -38,6 +50,13 @@ db:
 # OPTIONAL: Email (for password reset)
 # =============================================================================
 # Without email, users can still register and log in, but password reset won't work.
+# SECURITY: When app.mail block is configured (host non-empty), app.mail.secret MUST be
+#           set to at least 32 characters. The boot guard in app.js refuses startup if
+#           the secret is missing or too short.
+# SECURITY: app.mail.secret signs JWT email verification and email-share tokens
+#           (HS256 in lib/controllers/trinket.js); a weak secret enables token forgery
+#           per AAP §0.5.2 Strategy B / R2 / OWASP A02 Cryptographic Failures.
+# SECURITY: Generate a strong secret: openssl rand -base64 32
 
 # app:
 #   mail:
@@ -46,11 +65,14 @@ db:
 #     port: 587
 #     user: 'your-smtp-username'
 #     pass: 'your-smtp-password'
+#     secret: 'your-mail-jwt-signing-secret-min-32-characters'   # SECURITY: ≥32 chars required by boot guard per AAP §0.5.2 Strategy B / R2
 
 # =============================================================================
 # OPTIONAL: File Storage (for asset uploads in trinkets)
 # =============================================================================
 # Without S3, the asset upload feature is disabled. Code still works fine.
+# SECURITY: AWS credentials sourced from config.aws (this file) per AAP §0.7.3 — never env vars
+# SECURITY: aws-sdk patched within v2.x; v3 migration deferred per AAP §0.5.3 Minimal Change Clause
 
 # features:
 #   assets: true
@@ -67,6 +89,8 @@ db:
 # =============================================================================
 # OPTIONAL: Google OAuth
 # =============================================================================
+# SECURITY: Google OAuth callback validates state parameter to prevent CSRF
+#           per AAP §0.5.2 Strategy E / R5 / OWASP A07 (state validation in lib/auth/passport.js)
 
 # app:
 #   auth:
@@ -78,6 +102,10 @@ db:
 # =============================================================================
 # OPTIONAL: reCAPTCHA (spam protection)
 # =============================================================================
+# SECURITY: When recaptcha block is omitted or secretkey is empty, lib/util/recaptcha.js
+#           fail-opens with a WARN-level log per AAP §0.5.2 Strategy C / R3 (operator audit visibility)
+# SECURITY: Configure for production deployments to enforce human verification on signup,
+#           password reset, email verification, and email-share endpoints
 
 # app:
 #   recaptcha:
