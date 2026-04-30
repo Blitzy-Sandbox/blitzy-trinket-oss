@@ -4,7 +4,7 @@ pygame==2.5.2
 
 # Same as python3 shell
 beautifulsoup4==4.11.1
-lxml==4.9.1
+lxml==6.1.0  # SECURITY: CVE-2026-41066 (XXE in iterparse/ETCompatXMLParser, GHSA-vfmq-68hx-4jfw, HIGH) remediated per AAP §0.5.2 Strategy A / R1
 numpy==1.23.2
 scipy==1.9.0
 matplotlib==3.5.3
@@ -14,7 +14,7 @@ pygal==3.0.0
 pygal_maps_world==1.0.2
 pygal_maps_fr==1.1.0
 pygal_maps_ch==1.0.1
-cairosvg==2.5.2
+cairosvg==2.9.0  # SECURITY: CVE-2023-27586 (SSRF, GHSA-rwmf-w63j-p7gv, HIGH), CVE-2026-31899 (recursive <use> exponential DoS, GHSA-f38f-5xpm-9r7c, HIGH) remediated per AAP §0.5.2 Strategy A / R1
 tinycss==0.4
 cssselect==1.1.0
 bokeh==2.4.3
@@ -29,7 +29,7 @@ seaborn==0.11.2
 exifread==3.0.0
 biopython==1.79
 ete3==3.1.2
-mysql-connector-python==8.0.26
+mysql-connector-python==9.1.0  # SECURITY: CVE-2024-21272 (Connector/Python takeover, GHSA-hgjp-83m4-h4fj, HIGH) remediated per AAP §0.5.2 Strategy A / R1
 sympy==1.10.1
 pytest==7.1.2
 networkx==2.6.3
