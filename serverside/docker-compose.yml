@@ -1,3 +1,34 @@
+# ============================================================================
+# SECURITY: Shell Container Hardening Defaults (AAP §0.5.2 Strategy F / R6)
+# ============================================================================
+# Hardening directives are now ENABLED by default for adversarial-zone shell
+# containers (python3-shell, java-shell, r-shell, pygame-worker) per AAP
+# §6.4.5 zone definitions ("Code Execution Zone - Adversarial").
+#
+# Operators may opt out by removing or commenting individual directives below.
+# Hardening rationale: untrusted learner code execution requires default-on
+# defense-in-depth per the educational platform's threat model.
+#
+# Per AAP §0.1.1 educational platform flexibility requirement: opt-out is
+# preserved; operators may relax limits if their environment requires it.
+#
+# Directives applied to text shells (python3-shell, java-shell, r-shell):
+#   mem_limit, mem_reservation, cpus, cpu_shares, pids_limit,
+#   read_only, tmpfs, security_opt (no-new-privileges), cap_drop (ALL)
+#
+# Directives applied to pygame-worker (graphical environment - NO read_only):
+#   mem_limit (1g), mem_reservation, cpus, cpu_shares, pids_limit,
+#   security_opt (no-new-privileges), cap_drop (ALL)
+# Note: pygame-worker omits read_only/tmpfs because Xvfb (/tmp/.X11-unix),
+#   TightVNC (~/.vnc), Supervisor (/var/run/supervisor, /var/log/supervisor),
+#   and noVNC websockify write to multiple paths that conflict with strict
+#   read-only root + small tmpfs. Capability drop and resource limits remain.
+#
+# Manager services (python3-manager, java-manager, r-manager, pygame-manager)
+# are TRUSTED-ZONE Node.js orchestrators and are NOT hardened here per
+# AAP §6.4.5 (managers are not adversarial).
+# ============================================================================
+
 services:
   # Nginx reverse proxy - single entry point
   nginx:
@@ -23,16 +54,23 @@ services:
     expose:
       - "8010"
     volumes:
+      # Named volume mount overrides the /tmp tmpfs at this subpath, so
+      # per-session writes persist via the named volume (not tmpfs).
       - python-sessions:/tmp/sessions
-    # Production security options (uncomment for hardened deployment):
-    # mem_limit: 500m
-    # mem_reservation: 375m
-    # cpus: 1.0
-    # cpu_shares: 512
-    # pids_limit: 50
-    # read_only: true
-    # tmpfs:
-    #   - /tmp:size=100m
+    # SECURITY: Default-on hardening for adversarial-zone shell (AAP §0.5.2 Strategy F / R6)
+    # Operators may opt out by removing or commenting individual directives below.
+    mem_limit: 500m              # SECURITY: Hard memory cap (mitigates memory exhaustion / OOM DoS)
+    mem_reservation: 375m        # SECURITY: Soft memory limit for scheduling
+    cpus: 1.0                    # SECURITY: CPU bound (mitigates CPU exhaustion)
+    cpu_shares: 512              # SECURITY: Relative CPU weight (limits scheduling priority)
+    pids_limit: 50               # SECURITY: PID limit (mitigates fork bombs)
+    read_only: true              # SECURITY: Read-only root filesystem (prevents tamper / persistence)
+    tmpfs:
+      - /tmp:size=100m           # SECURITY: Writable /tmp with size cap (limits scratch space abuse)
+    security_opt:
+      - no-new-privileges:true   # SECURITY: Block setuid privilege escalation
+    cap_drop:
+      - ALL                      # SECURITY: Drop all Linux capabilities (least privilege)
 
   python3-manager:
     build: ./python/manager
@@ -54,13 +92,24 @@ services:
     expose:
       - "8010"
     volumes:
+      # Named volume mount overrides the /tmp tmpfs at this subpath, so
+      # javac workspace writes (per-session class files) persist via the
+      # named volume (not tmpfs).
       - java-sessions:/tmp/sessions
-    # Production security options (uncomment for hardened deployment):
-    # mem_limit: 500m
-    # mem_reservation: 375m
-    # cpus: 1.0
-    # cpu_shares: 512
-    # pids_limit: 50
+    # SECURITY: Default-on hardening for adversarial-zone shell (AAP §0.5.2 Strategy F / R6)
+    # Operators may opt out by removing or commenting individual directives below.
+    mem_limit: 500m              # SECURITY: Hard memory cap (mitigates memory exhaustion / OOM DoS)
+    mem_reservation: 375m        # SECURITY: Soft memory limit for scheduling
+    cpus: 1.0                    # SECURITY: CPU bound (mitigates CPU exhaustion)
+    cpu_shares: 512              # SECURITY: Relative CPU weight (limits scheduling priority)
+    pids_limit: 50               # SECURITY: PID limit (mitigates fork bombs)
+    read_only: true              # SECURITY: Read-only root filesystem (prevents tamper / persistence)
+    tmpfs:
+      - /tmp:size=100m           # SECURITY: Writable /tmp with size cap (limits scratch space abuse)
+    security_opt:
+      - no-new-privileges:true   # SECURITY: Block setuid privilege escalation
+    cap_drop:
+      - ALL                      # SECURITY: Drop all Linux capabilities (least privilege)
 
   java-manager:
     build: ./java/manager
@@ -81,13 +130,26 @@ services:
     expose:
       - "8010"
     volumes:
+      # Named volume mount overrides the /tmp tmpfs at this subpath, so
+      # per-session writes persist via the named volume (not tmpfs).
       - r-sessions:/tmp/sessions
-    # Production security options (uncomment for hardened deployment):
-    # mem_limit: 500m
-    # mem_reservation: 375m
-    # cpus: 1.0
-    # cpu_shares: 512
-    # pids_limit: 50
+    # SECURITY: Default-on hardening for adversarial-zone shell (AAP §0.5.2 Strategy F / R6)
+    # Operators may opt out by removing or commenting individual directives below.
+    # Note: If R packages need ~/.cache or ~/.config writes at runtime and
+    # surface EROFS errors, operators may add additional tmpfs mounts (e.g.,
+    # `/home/trinket:size=50m`) or remove `read_only: true`.
+    mem_limit: 500m              # SECURITY: Hard memory cap (mitigates memory exhaustion / OOM DoS)
+    mem_reservation: 375m        # SECURITY: Soft memory limit for scheduling
+    cpus: 1.0                    # SECURITY: CPU bound (mitigates CPU exhaustion)
+    cpu_shares: 512              # SECURITY: Relative CPU weight (limits scheduling priority)
+    pids_limit: 50               # SECURITY: PID limit (mitigates fork bombs)
+    read_only: true              # SECURITY: Read-only root filesystem (prevents tamper / persistence)
+    tmpfs:
+      - /tmp:size=100m           # SECURITY: Writable /tmp with size cap (limits scratch space abuse)
+    security_opt:
+      - no-new-privileges:true   # SECURITY: Block setuid privilege escalation
+    cap_drop:
+      - ALL                      # SECURITY: Drop all Linux capabilities (least privilege)
 
   r-manager:
     build: ./r/manager
@@ -110,10 +172,24 @@ services:
       - "6080"   # noVNC WebSocket
     volumes:
       - pygame-sessions:/tmp/pygame
-    # Production security options (uncomment for hardened deployment):
-    # mem_limit: 1g
-    # mem_reservation: 750m
-    # cpus: 2.0
+    # SECURITY: Default-on hardening for adversarial-zone worker (AAP §0.5.2 Strategy F / R6)
+    # Operators may opt out by removing or commenting individual directives below.
+    # Note: pygame-worker requires HIGHER resource limits than text shells due to
+    # graphical environment (Xvfb + TightVNC + noVNC + websockify + Supervisor).
+    # Note: read_only/tmpfs are intentionally OMITTED for pygame-worker because
+    # Xvfb (/tmp/.X11-unix), TightVNC (~/.vnc), Supervisor (/var/run/supervisor,
+    # /var/log/supervisor), and noVNC websockify each write to multiple paths
+    # that conflict with strict read-only root + small tmpfs. Capability drop
+    # and resource limits remain to provide layered defense (AAP §0.8.3).
+    mem_limit: 1g                # SECURITY: Hard memory cap for graphical environment
+    mem_reservation: 750m        # SECURITY: Soft memory limit for scheduling
+    cpus: 2.0                    # SECURITY: CPU bound (graphical environment requires more)
+    cpu_shares: 512              # SECURITY: Relative CPU weight (limits scheduling priority)
+    pids_limit: 100              # SECURITY: PID limit higher for Supervisor + child processes (Xvfb, TightVNC, noVNC, websockify, pygame)
+    security_opt:
+      - no-new-privileges:true   # SECURITY: Block setuid privilege escalation
+    cap_drop:
+      - ALL                      # SECURITY: Drop all Linux capabilities (least privilege)
 
   pygame-manager:
     build: ./pygame/manager
