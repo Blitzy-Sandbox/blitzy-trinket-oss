@@ -10,7 +10,7 @@ var Joi               = require('joi'),
 // SECURITY: Page route security hardening per AAP §0.5.2 (R4 + R5 + R7) / OWASP A01, A05, A07
 // (1) /admin and /admin/{adminPage*} routes audited for pre: ['isAdmin(user)'] enforcement
 //     — All admin pages confirmed admin-gated per AAP §0.5.2 Strategy G / R7 / OWASP A01
-// (2) /admin/upload (POST) opts in to @hapi/crumb CSRF synchronizer-token via plugins: { crumb: true }
+// (2) /admin/upload (POST) opts in to @hapi/crumb CSRF synchronizer-token via plugins : { crumb : {} }
 //     — Per AAP Risk Management: scoped to non-SPA admin routes first; SPA-consumed routes deferred
 //     — Per AAP §0.5.2 Strategy E / R5 / OWASP A07
 // (3) Auth flow routes (login, signup, password reset) preserved with existing Joi validation
@@ -259,7 +259,7 @@ routes = [
     config : {
       auth: 'session',
       // SECURITY: CSRF synchronizer-token protection per AAP §0.5.2 Strategy E / R5 (admin server-rendered upload)
-      plugins : { crumb : true },
+      plugins : { crumb : {} },
       // SECURITY: isAdmin enforcement per AAP §0.5.2 Strategy G / R7 / OWASP A01
       pre : ['isAdmin(user)']
     }

@@ -9,7 +9,7 @@ var Joi          = require('joi'),
 // (2) /api/admin/* routes require pre: ['isAdmin(user)'] per AAP §0.5.2 Strategy G / R7
 //     — All admin routes audited per AAP §0.5.2 Strategy G / R7 / OWASP A01
 // (3) /api/exports (POST), /api/users password/email change, and /api/admin/* mutating routes
-//     opt in to @hapi/crumb CSRF synchronizer-token via plugins: { crumb: true }
+//     opt in to @hapi/crumb CSRF synchronizer-token via plugins : { crumb : {} }
 //     — Per AAP Risk Management: scoped to non-SPA routes first; SPA-consumed routes deferred
 //     — Per AAP §0.5.2 Strategy E / R5 / OWASP A07
 // (4) recaptchaValidation degrades to optional when reCAPTCHA unconfigured
@@ -1347,7 +1347,7 @@ module.exports = [
     config : {
       auth: 'session',
       // SECURITY: CSRF synchronizer-token protection per AAP §0.5.2 Strategy E / R5 (highest-risk mutating route)
-      plugins : { crumb : true },
+      plugins : { crumb : {} },
       validate : {
         payload : {
           currentPassword : Joi.string().required(),
@@ -1362,7 +1362,7 @@ module.exports = [
     config : {
       auth: 'session',
       // SECURITY: CSRF synchronizer-token protection per AAP §0.5.2 Strategy E / R5 (highest-risk mutating route)
-      plugins : { crumb : true },
+      plugins : { crumb : {} },
       pre : [{ method : helpers.lowerUserFields }],
       validate : {
         payload : {
@@ -1425,7 +1425,7 @@ module.exports = [
     config : {
       auth: 'session',
       // SECURITY: CSRF synchronizer-token protection per AAP §0.5.2 Strategy E / R5 (admin mutating route)
-      plugins : { crumb : true },
+      plugins : { crumb : {} },
       // SECURITY: isAdmin enforcement per AAP §0.5.2 Strategy G / R7 / OWASP A01
       pre  : ['isAdmin(user)']
     }
@@ -1435,7 +1435,7 @@ module.exports = [
     config : {
       auth: 'session',
       // SECURITY: CSRF synchronizer-token protection per AAP §0.5.2 Strategy E / R5 (admin mutating route)
-      plugins : { crumb : true },
+      plugins : { crumb : {} },
       // SECURITY: isAdmin enforcement per AAP §0.5.2 Strategy G / R7 / OWASP A01
       pre  : ['isAdmin(user)'],
       validate : {
@@ -1450,7 +1450,7 @@ module.exports = [
     config : {
       auth: 'session',
       // SECURITY: CSRF synchronizer-token protection per AAP §0.5.2 Strategy E / R5 (admin mutating route)
-      plugins : { crumb : true },
+      plugins : { crumb : {} },
       // SECURITY: isAdmin enforcement per AAP §0.5.2 Strategy G / R7 / OWASP A01
       pre  : ['isAdmin(user)'],
       validate : {
@@ -1467,7 +1467,7 @@ module.exports = [
     config : {
       auth: 'session',
       // SECURITY: CSRF synchronizer-token protection per AAP §0.5.2 Strategy E / R5 (admin mutating route)
-      plugins : { crumb : true },
+      plugins : { crumb : {} },
       // SECURITY: isAdmin enforcement per AAP §0.5.2 Strategy G / R7 / OWASP A01
       pre  : ['isAdmin(user)'],
       validate : {
@@ -1485,7 +1485,7 @@ module.exports = [
     config : {
       auth: 'session',
       // SECURITY: CSRF synchronizer-token protection per AAP §0.5.2 Strategy E / R5 (admin mutating route)
-      plugins : { crumb : true },
+      plugins : { crumb : {} },
       // SECURITY: isAdmin enforcement per AAP §0.5.2 Strategy G / R7 / OWASP A01
       pre  : ['isAdmin(user)'],
       validate : {
@@ -1555,7 +1555,7 @@ module.exports = [
     config : {
       auth: 'session',
       // SECURITY: CSRF synchronizer-token protection per AAP §0.5.2 Strategy E / R5 (highest-risk export request route, non-SPA)
-      plugins : { crumb : true }
+      plugins : { crumb : {} }
     }
   },
   {
