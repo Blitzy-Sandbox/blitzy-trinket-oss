@@ -9,6 +9,8 @@ This guide will help you get Trinket running locally for development.
 
 That's it! Everything else runs inside Docker.
 
+> **Note on Node.js version:** The Docker image is built on **Node 20 LTS** (`node:20-bullseye`). Previous releases used Node 16, which reached end-of-life in September 2023; the upgrade is part of the security remediation that closes accumulated Bullseye OS-layer CVEs no longer receiving Node 16 backports. If you run any Node tooling **outside** the container (for example `npm install` on the host before opening the project in your editor, or running `npm audit`), install **Node 20 LTS** locally so your host environment matches the container runtime.
+
 ## Quick Start
 
 ```bash
@@ -149,6 +151,36 @@ app:
         password: 'your-32-character-secret-here!!'
 ```
 
+## Security Settings
+
+Trinket performs boot-time validation of two security-critical secrets. The application **will refuse to start** if either is missing or shorter than 32 characters. These guards prevent forgeable session cookies and forgeable email-link JWTs respectively.
+
+### Session cookie password (required, ≥32 characters)
+
+The session cookie password seals the encrypted session payload via `@hapi/yar` (see the existing boot guard at `app.js` lines 50–66). Generate a strong value with:
+
+```bash
+openssl rand -base64 32
+```
+
+…and place it under `app.plugins.session.cookieOptions.password` in `config/local.yaml` (shown above).
+
+### Mail JWT secret (required, ≥32 characters)
+
+`app.mail.secret` signs the JWTs embedded in email-verification, password-reset, and trinket-share links. A new boot guard — added during the security remediation and modelled on the existing session-password guard — refuses to boot when the value is empty or shorter than 32 characters:
+
+```yaml
+app:
+  mail:
+    secret: 'your-32-character-mail-jwt-secret!'
+```
+
+Generate it the same way: `openssl rand -base64 32`. If you are upgrading an existing deployment whose `app.mail.secret` was previously shorter, **rotate it before redeploying** — older outstanding email links will cease to verify, which is the intended consequence of strengthening the secret.
+
+### Audit-trail annotations
+
+Every line touched by the security remediation carries an inline `// SECURITY: [threat addressed]` comment. These annotations are the project's audit-trail mechanism: they make every security-relevant change discoverable with `git grep "SECURITY:"` and easy to map back to the originating threat or OWASP category. See `SECURITY.md` for the disclosure policy and `CHANGELOG.md` for the security release entry.
+
 ## Email (SMTP)
 
 Email is required for password reset and notifications. Configure any SMTP provider:
@@ -224,6 +256,22 @@ Quick start:
 cd serverside
 docker compose --profile python3 up --build
 ```
+
+> **Server-side container hardening (default-on):** Shell containers in `serverside/docker-compose.yml` execute untrusted learner code, so they ship with hardening directives **enabled by default** as part of the security remediation. Each shell service applies:
+>
+> ```yaml
+> mem_limit: 500m
+> pids_limit: 50
+> read_only: true
+> tmpfs:
+>   - /tmp:size=100m
+> security_opt:
+>   - no-new-privileges:true
+> cap_drop:
+>   - ALL
+> ```
+>
+> Together these block fork-bombs, runaway memory use, root-filesystem tampering, setuid escalation, and Linux-capability abuse from inside a shell container. Operators may opt out by editing `serverside/docker-compose.yml` (for example to relax `mem_limit` for compute-intensive coursework), but the default posture is hardened. See [serverside/README.md](serverside/README.md) for the full hardening reference.
 
 Enable in config:
 ```yaml
@@ -337,3 +385,8 @@ Without Redis, cache data is lost on restart and not shared between instances.
 - [ ] Set up HTTPS (required for secure cookies)
 - [ ] Configure `app.url` to match your domain
 - [ ] Review feature flags
+- [ ] Set `app.mail.secret` to at least 32 characters (boot guard enforces this; see **Security Settings**)
+- [ ] Verify `app.recaptcha.secretkey` is configured — when absent, reCAPTCHA fail-opens with a `WARN`-level log entry, leaving signup, password reset, and email verification unprotected by human verification
+- [ ] Run `npm audit --audit-level=high` against the root `package.json` and each `serverside/*/manager/package.json` and confirm zero Critical/High advisories
+- [ ] Verify the response headers `Content-Security-Policy`, `X-Content-Type-Options: nosniff`, and `Referrer-Policy: strict-origin-when-cross-origin` are emitted on application pages (added by the `onPreResponse` security-headers extension in `app.js`)
+- [ ] Keep server-side shell hardening enabled in `serverside/docker-compose.yml` (the default) when running untrusted learner code in production
