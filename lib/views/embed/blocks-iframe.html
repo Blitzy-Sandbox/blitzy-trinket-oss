@@ -12,6 +12,9 @@
          '/js/embed/blocks/matplotlib.js'
        ]
     %}
+    {# SECURITY: cachify_js() emits <script> tags for server-built bundle — Class A known-safe context per AAP §0.5.2 Strategy H / R8 / OWASP A03 #}
+    {# SECURITY: Bundle name 'embed-blocks-iframe' and js[] file list are server-controlled hardcoded constants; NOT user input #}
+    {# SECURITY: | safe required because cachify_js() outputs HTML <script> tags directly; auto-escape would HTML-encode the angle brackets #}
     {{ cachify_js('embed-blocks-iframe', js) | safe }}
     <style>
       html, body {
