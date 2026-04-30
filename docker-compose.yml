@@ -14,6 +14,19 @@ services:
     links:
       - redis
       - mongodb
+    # SECURITY: Drop unnecessary Linux capabilities (defense-in-depth) per AAP §0.5.2 Strategy F (R6)
+    # Note: Cannot use 'read_only: true' because PM2 writes logs to filesystem
+    cap_drop:
+      - ALL
+    cap_add:
+      # SECURITY: Restore minimum capabilities required by Node.js + PM2 + npm install (USER trinket in Dockerfile)
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+    # SECURITY: Prevent setuid privilege escalation per AAP §0.5.2 Strategy F (R6)
+    security_opt:
+      - no-new-privileges:true
   redis:
     image: redis:latest
     ports:
@@ -21,6 +34,19 @@ services:
     container_name: redis
     networks:
       - trinket
+    # SECURITY: Drop unnecessary Linux capabilities per AAP §0.5.2 Strategy F (R6)
+    cap_drop:
+      - ALL
+    cap_add:
+      # SECURITY: Restore minimum capabilities required by redis-server to drop privileges to redis user
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
+    # SECURITY: Prevent setuid privilege escalation per AAP §0.5.2 Strategy F (R6)
+    security_opt:
+      - no-new-privileges:true
   mongodb:
     image: mongo:5
     ports:
@@ -30,7 +56,22 @@ services:
       - mongodb_data:/data/db
     networks:
       - trinket
+    # SECURITY: Drop unnecessary Linux capabilities per AAP §0.5.2 Strategy F (R6)
+    cap_drop:
+      - ALL
+    cap_add:
+      # SECURITY: Restore minimum capabilities required by mongod to drop privileges to mongodb user and manage /data/db
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETFCAP
+    # SECURITY: Prevent setuid privilege escalation per AAP §0.5.2 Strategy F (R6)
+    security_opt:
+      - no-new-privileges:true
 networks:
+  # SECURITY: Bridge network isolates Trinket stack from other Docker networks (per AAP §0.6.1 audit)
   trinket:
     driver: bridge
 volumes:
