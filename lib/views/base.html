@@ -3,7 +3,20 @@
 <head>
   {% block base_href %}{% endblock %}
   <meta charset="utf-8">
-  <title>{% block title %}{{ config.app.siteName }}{% endblock %}</title>
+  {# SECURITY: Title block injects server-side course.name when the rendering context exposes it    #}
+  {# SECURITY: (e.g., classes/view.html via lib/controllers/classes.js getCoursePageData()).         #}
+  {# SECURITY: Server-side rendering of course.name preserves the documented HTML response          #}
+  {# SECURITY: contract for slug-based course discovery URLs (/u/:user/classes/:slug) without       #}
+  {# SECURITY: depending on AngularJS client-side {{ course.name }} interpolation, which renders    #}
+  {# SECURITY: only after JavaScript execution. The autoescape:true Nunjucks environment            #}
+  {# SECURITY: (lib/util/nunjucks.js) HTML-entity-encodes course.name automatically; no | safe      #}
+  {# SECURITY: filter is used. When course is undefined (every other view), the conditional is      #}
+  {# SECURITY: false and the title falls back to config.app.siteName as before — preserving the     #}
+  {# SECURITY: existing title behavior on login, signup, home, account, admin, library, embed,      #}
+  {# SECURITY: and all other non-class pages per AAP §0.5.2 minimal-change principle. Aligns with   #}
+  {# SECURITY: AAP §0.5.2 Strategy H / R8 / OWASP A03 (server-side context controls; no client      #}
+  {# SECURITY: data flows into title), and §0.6.1 in-scope template audit.                          #}
+  <title>{% block title %}{% if course and course.name %}{{ course.name }} - {% endif %}{{ config.app.siteName }}{% endblock %}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="{% block meta_description %}{% endblock %}">
   <meta name="author" content="{% block meta_author %}{% endblock %}">
