@@ -52,7 +52,15 @@ describe('Trinket model', function(){
 
         Trinket.hooks.pre.save.createHash.call(trinket, function() {
           trinket.hash.should.eql(hash);
-          trinket.shortCode.should.eql(hash.substring(0, 10));
+          // SECURITY: lib/models/trinket.js line 130 hashify() truncates the
+          // SECURITY: SHA-1 digest to 12 hex characters for the URL-facing
+          // SECURITY: shortCode identifier (`.substring(0, 12)`). Per AAP §0.5.2
+          // SECURITY: Strategy B / R2, this 12-char surface is preserved as part
+          // SECURITY: of the URL backward-compatibility contract — the shortCode
+          // SECURITY: is part of the public trinket URL surface and changing
+          // SECURITY: its length would invalidate every existing trinket link.
+          // SECURITY: Closes QA FINAL Issue #7 per AAP §0.5.2 Strategy I / R9.
+          trinket.shortCode.should.eql(hash.substring(0, 12));
           update.calledWith(trinket.code + trinket.lang + trinket._owner + trinket._parent).should.be.true;
           update.calledWith(trinket.code + trinket.lang + trinket._owner + trinket._parent + now).should.be.true;
           cryptoStub.restore();
@@ -112,27 +120,47 @@ describe('Trinket model', function(){
     describe('findById', function() {
       it('should include the shortCode as a search criteria', function(done) {
         var doc     = 'foo';
-        var findOne = sinon.spy(function(criteria, cb){ cb(null, doc) });
+        // SECURITY: Mongoose 6 model.findOne(query) returns a thenable Query;
+        // SECURITY: there is no callback parameter. lib/models/model.js
+        // SECURITY: classMethods.findById (auto-injected when the host model
+        // SECURITY: does not define its own findById) calls findOne with a
+        // SECURITY: single argument in the `alternateIds` branch (Trinket has
+        // SECURITY: alternateIds: ['shortCode'] per lib/models/trinket.js:601)
+        // SECURITY: and chains .then(doc => cb(null, doc)) to invoke the
+        // SECURITY: caller-supplied cb. The spy must therefore return a
+        // SECURITY: thenable Promise so the internal .then() resolves.
+        // SECURITY: Closes QA FINAL Issue #7 per AAP §0.5.2 Strategy I / R9.
+        var findOne = sinon.spy(function(criteria) { return Promise.resolve(doc); });
         var scope   = { model : { findOne : findOne } };
         var query   = { shortCode : 'abc123' };
         var cb      = function(err, result) {
-          findOne.calledWithExactly(query, cb).should.be.true;
+          // SECURITY: When alternateIds.length === 1 and the input id does not
+          // SECURITY: match ID_REGEXP, lib/models/model.js:132-133 collapses
+          // SECURITY: query.$or to its sole condition: {shortCode: 'abc123'}.
+          // SECURITY: findOne therefore receives exactly one argument — the
+          // SECURITY: literal {shortCode:'abc123'} query — not a (query, cb)
+          // SECURITY: pair. Use calledWith(query) to assert just the first arg
+          // SECURITY: was the expected query (any/no additional args allowed).
+          findOne.calledWith(query).should.be.true;
           done();
         };
-        
+
         Trinket.classMethods.findById.call(scope, 'abc123', cb);
       });
 
       it('should return the results of the findOne call', function(done) {
         var doc     = 'foo';
-        var findOne = sinon.spy(function(criteria, cb){ cb(null, doc) });
+        // SECURITY: Same Mongoose 6 thenable contract — spy returns a resolved
+        // SECURITY: Promise so model.js's `promise.then(function(doc) {
+        // SECURITY: cb(null, doc); })` callback fires with `doc` and the test
+        // SECURITY: receives it via the shared cb closure below.
+        var findOne = sinon.spy(function(criteria) { return Promise.resolve(doc); });
         var scope   = { model : { findOne : findOne } };
-        var query   = { shortCode : 'abc123' };
         var cb      = function(err, result) {
           result.should.eql('foo');
           done();
         };
-        
+
         Trinket.classMethods.findById.call(scope, 'abc123', cb);
       });
     });
@@ -142,8 +170,16 @@ describe('Trinket model', function(){
       var callScope;
 
       before(function(done) {
-        var findByIdAndUpdate = sinon.spy(function(id, update, options, cb){
-          return cb(null, {
+        // SECURITY: lib/models/trinket.js findAndUpdateMetrics (line 219)
+        // SECURITY: invokes this.model.findByIdAndUpdate(id, update, options)
+        // SECURITY: with three positional arguments and chains .then() on the
+        // SECURITY: returned thenable Mongoose 6 Query — there is no callback
+        // SECURITY: parameter. The spy must therefore return a resolved Promise
+        // SECURITY: that yields the synthetic trinket document, so the internal
+        // SECURITY: .then(function(trinket) {...}) handler fires correctly.
+        // SECURITY: Closes QA FINAL Issue #7 per AAP §0.5.2 Strategy I / R9.
+        var findByIdAndUpdate = sinon.spy(function(id, update, options) {
+          return Promise.resolve({
             _id : 'id',
             _owner : 'owner',
             lang : 'lang'
@@ -154,8 +190,18 @@ describe('Trinket model', function(){
 
         interactionStub = sinon.stub(global, 'Interaction', function(data) {
           return _.extend({
+            // SECURITY: lib/models/trinket.js line 228 invokes
+            // SECURITY: `interaction.save();` with no callback (Mongoose 6
+            // SECURITY: returns a Promise). Make the save spy tolerant of both
+            // SECURITY: the no-arg invocation (returns Promise.resolve(this))
+            // SECURITY: and the legacy callback form (cb(this) when cb is a
+            // SECURITY: function), so the assertion calledOnce remains
+            // SECURITY: meaningful regardless of which contract Mongoose uses.
             save : sinon.spy(function(cb) {
-              return cb(this);
+              if (typeof cb === 'function') {
+                return cb(this);
+              }
+              return Promise.resolve(this);
             })
           }, data);
         });
@@ -184,7 +230,15 @@ describe('Trinket model', function(){
               }
             }).should.be.true;
           })
-          .done(done);
+          // SECURITY: Native Promise has no .done() method — that is a Q-library
+          // SECURITY: idiom. app.js polyfills .spread and .fail (lines 4-16) but
+          // SECURITY: deliberately does NOT polyfill .done because Mongoose 6 +
+          // SECURITY: native Promises already throw unhandled rejections to the
+          // SECURITY: top level. The native equivalent of `.done(cb)` is
+          // SECURITY: `.then(cb, cb)` — invokes cb with no args on success and
+          // SECURITY: with the err on failure, exactly matching Mocha's done()
+          // SECURITY: contract. Closes QA FINAL Issue #7 per AAP §0.5.2 R9.
+          .then(done, done);
       });
 
       it('should construct an interaction for the metric to be updated', function(done) {
@@ -199,7 +253,8 @@ describe('Trinket model', function(){
             }).should.be.true;
             interactionStub.returnValues[0].save.calledOnce.should.be.true;
           })
-          .done(done);
+          // SECURITY: Same .done() → .then(done, done) translation as above.
+          .then(done, done);
       });
     });
   });
