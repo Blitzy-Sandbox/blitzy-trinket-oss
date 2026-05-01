@@ -875,7 +875,15 @@ module.exports = [
       auth: 'session',
       validate : {
         query : {
-          limit  : Joi.string().optional(),
+          // SECURITY: Pagination cap on `limit` defends against unbounded result set DoS per
+          //           AAP §0.5.2 Strategy H / R8 / OWASP A04 Insecure Design (CWE-770).
+          //           Mirrors the cap pattern from /api/trinkets/popular and /api/trinkets/active
+          //           (both use Joi.number().max(100).min(0)) and /api/exports (.max(50)).
+          //           Joi coerces numeric query strings ("100") to numbers by default, so this is
+          //           backward compatible with existing string-based clients. The downstream
+          //           controller (lib/controllers/trinket.js line 265: `parseInt(request.query.limit) || 20`)
+          //           is unaffected because parseInt accepts both numbers and numeric strings.
+          limit  : Joi.number().integer().min(0).max(100).optional(),
           from   : Joi.string().optional(),
           sort   : Joi.string().optional(),
           offset : Joi.string().optional(),
