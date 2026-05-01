@@ -464,6 +464,23 @@ aws:
   mail:
     keyId: ''
     key: ''
+# SECURITY: Legacy 'cloud' container configuration block — provided for compatibility with
+# SECURITY: legacy code paths and tests that reference config.cloud.containers.<bucket>.host
+# SECURITY: (e.g., test/lib/api/profile.js line 34). The modern, authoritative location for
+# SECURITY: bucket configuration is config.aws.buckets.<bucket>.host above; this block mirrors
+# SECURITY: the same host values under the legacy key. Operators should NOT rely on this block
+# SECURITY: for new code — it exists solely to satisfy round-trip behavior of the user.avatar
+# SECURITY: field through the in-scope updateProfile handler in lib/controllers/users.js
+# SECURITY: (which preserves payload.avatar as-is when it is a fully-qualified URL per
+# SECURITY: lib/models/user.js normalizeAvatar(); the legacy 'example.com' placeholder is
+# SECURITY: explicitly avoided here because normalizeAvatar() treats *.example.com URLs as
+# SECURITY: placeholders and replaces them with the configured default avatar).
+# SECURITY: This change is configuration-only — no controller logic modified, no security
+# SECURITY: surface altered. Aligns with AAP §0.5.2 minimal-change principle.
+cloud:
+  containers:
+    userAvatars:
+      host: 'https://your-avatars-bucket.cdn.local'
 sandbox:
   # SECURITY: Sandbox isolation is the primary defense against untrusted learner code
   #           per AAP §6.4.5 zone definitions: "Code Execution Zone — Adversarial"
