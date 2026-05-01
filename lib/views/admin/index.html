@@ -54,6 +54,18 @@
 
 {% block extra_js %}
 <script type="text/javascript">
+{# SECURITY: Expose the @hapi/crumb CSRF synchronizer-token to the admin SPA as a #}
+{# SECURITY: server-rendered global so $.ajax DELETE requests can include it via the #}
+{# SECURITY: X-CSRF-Token header. The token is also delivered as the readable `crumb` #}
+{# SECURITY: cookie (cookieOptions.isHttpOnly: false in app.js Yar registration) but #}
+{# SECURITY: server-rendering is the canonical pattern used throughout this app and #}
+{# SECURITY: avoids cookie-parsing logic in client JS. Required because the DELETE #}
+{# SECURITY: route /api/admin/featured-course/{courseId} now uses @hapi/crumb #}
+{# SECURITY: restful: true mode (config/api_routes.js line 1480) which validates the #}
+{# SECURITY: header instead of the request payload. Per AAP §0.5.2 Strategy E / R5 / #}
+{# SECURITY: OWASP A01 / CWE-352. {{ crumb }} is auto-escaped by Nunjucks (autoescape: #}
+{# SECURITY: true in lib/util/nunjucks.js) so XSS injection via the token is impossible. #}
+window._csrfToken = '{{ crumb }}';
 var template = TrinketIO.import('utils.template');
 
 $('#admin-roles').click(function(event) {
@@ -153,7 +165,20 @@ $(document).on('click', '.remove-featured-course', function(event) {
 
   $.ajax({
     url    : '/api/admin/featured-course/' + courseId + '?page=' + page,
-    method : 'DELETE'
+    method : 'DELETE',
+    // SECURITY: X-CSRF-Token header carries the @hapi/crumb synchronizer-token per
+    // SECURITY: AAP §0.5.2 Strategy E / R5 / OWASP A01 / CWE-352. The DELETE route at
+    // SECURITY: config/api_routes.js line 1475 uses @hapi/crumb restful: true mode
+    // SECURITY: which validates the X-CSRF-Token header against the crumb cookie value
+    // SECURITY: (set by the @hapi/crumb plugin's onPreResponse extension at boot for
+    // SECURITY: every page load with autoGenerate: true). window._csrfToken is set by
+    // SECURITY: the inline script above from {{ crumb }} (server-rendered, auto-escaped).
+    // SECURITY: Closes QA Issue #2 (DELETE bypass) — without this header, the plugin's
+    // SECURITY: validation block at node_modules/@hapi/crumb/lib/index.js lines 137-148
+    // SECURITY: throws Boom.forbidden() returning HTTP 403.
+    headers: {
+      'X-CSRF-Token': window._csrfToken
+    }
   }).done(function(result) {
     $(self).closest('.course-row-container').remove();
   })

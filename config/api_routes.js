@@ -1476,7 +1476,19 @@ module.exports = [
     config : {
       auth: 'session',
       // SECURITY: CSRF synchronizer-token protection per AAP §0.5.2 Strategy E / R5 (admin mutating route)
-      plugins : { crumb : {} },
+      // SECURITY: restful: true per-route override forces @hapi/crumb v9 header-validation
+      // SECURITY: mode for this DELETE endpoint. The plugin's default restful: false mode
+      // SECURITY: only validates POST request payloads (node_modules/@hapi/crumb/lib/index.js
+      // SECURITY: lines 154-156: `if (!request.route.settings.plugins._crumb || request.method
+      // SECURITY: !== 'post') { return h.continue; }`), allowing DELETE requests to bypass
+      // SECURITY: validation entirely (CWE-352 Cross-Site Request Forgery). With restful: true,
+      // SECURITY: the plugin validates the X-CSRF-Token header against the crumb cookie value
+      // SECURITY: for all methods in restfulValidatedMethods (['post', 'put', 'patch', 'delete']).
+      // SECURITY: SameSite=Lax on the session cookie remains the primary mitigation; the
+      // SECURITY: synchronizer-token header is the defense-in-depth secondary control.
+      // SECURITY: Admin UI at lib/views/admin/index.html sends the header via $.ajaxSetup;
+      // SECURITY: closes QA Issue #2 (DELETE bypass) per FINAL SECURITY checkpoint findings.
+      plugins : { crumb : { restful: true } },
       // SECURITY: isAdmin enforcement per AAP §0.5.2 Strategy G / R7 / OWASP A01
       pre  : ['isAdmin(user)'],
       validate : {
