@@ -1,3 +1,5 @@
 --reporter spec
 --recursive
 --check-leaks
+--require ./test/setup.js
+--globals User,Course,Lesson,Material,Trinket,Interaction,Folder,CourseInvitation,File
