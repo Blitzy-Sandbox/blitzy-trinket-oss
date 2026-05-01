@@ -51,10 +51,21 @@ module.exports = [
       validate: {
         query : {
           with                 : Joi.alternatives().try(Joi.string().allow('_owner'), Joi.array().items(Joi.string().allow('_owner'))).optional(),
-          outline              : Joi.boolean().optional(),
-          withDraft            : Joi.boolean().optional(),
-          withContent          : Joi.boolean().optional(),
-          withDraftAssignments : Joi.boolean().optional()
+          // SECURITY: Joi 17 boolean coercion is strict — by default it accepts only
+          // SECURITY: 'true' / 'false' / true / false. The Trinket UX contract (and the
+          // SECURITY: existing AngularJS classPage outline loader at
+          // SECURITY: public/js/classPage/services/courseService.js → flow uses
+          // SECURITY: ?outline=yes) sends literal 'yes' / 'no' tokens — preserved here
+          // SECURITY: as legacy aliases via .truthy() / .falsy() per AAP API
+          // SECURITY: Compatibility Directive (route signatures and validation must not
+          // SECURITY: break existing client contract). The strict boolean type still
+          // SECURITY: rejects NoSQL operator-injection objects ({$gt: ''}, etc.) per
+          // SECURITY: AAP §0.5.2 Strategy H / R8 / OWASP A03. Closes pre-existing
+          // SECURITY: query-validation regression introduced by Joi 14 → 17 upgrade.
+          outline              : Joi.boolean().truthy('yes').falsy('no').optional(),
+          withDraft            : Joi.boolean().truthy('yes').falsy('no').optional(),
+          withContent          : Joi.boolean().truthy('yes').falsy('no').optional(),
+          withDraftAssignments : Joi.boolean().truthy('yes').falsy('no').optional()
         }
       }
     }
