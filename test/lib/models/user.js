@@ -4,7 +4,17 @@ var sinon    = require('sinon'),
     db       = require('../../helpers/db');
 
 describe('User model', function(){
-  before(db.reset);
+  // SECURITY: Wrap db.reset in an explicit function(done) closure to preserve
+  // SECURITY: Mocha's async-detection arity contract. helpers/db.js applies
+  // SECURITY: underscore _.bindAll producing a length-0 wrapper which Mocha
+  // SECURITY: treats as synchronous, causing a deferred TypeError at
+  // SECURITY: test/helpers/db.js:30 when dropDatabase invokes its
+  // SECURITY: undefined `done` callback. Mirrors the working pattern at
+  // SECURITY: test/security/index.js per AAP §0.5.2 Strategy I / R9. Closes
+  // SECURITY: QA FINAL Issue #2 / #4 cascade for User model class methods.
+  before(function(done) {
+    db.reset(done);
+  });
 
   describe('hooks', function(){
     describe('pre-save encryptPassword', function() {
