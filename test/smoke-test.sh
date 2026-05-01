@@ -74,7 +74,16 @@ test_endpoint "JS embed loads" "GET" "/js/embed/embed.js" "200"
 
 echo ""
 echo "--- API Endpoints ---"
-test_endpoint "API root accessible" "GET" "/api" "200"
+# SECURITY: /api is a route prefix, not a top-level page handler — Hapi returns
+# SECURITY: 404 by design. Test a real authenticated API endpoint instead.
+# SECURITY: GET /api/courses (config/api_routes.js — courses.getCourses) requires
+# SECURITY: an authenticated session via the Hapi `session` auth scheme; an
+# SECURITY: unauthenticated request returns 401, which is the correct
+# SECURITY: defense-in-depth posture (OWASP A01 — broken access control). This
+# SECURITY: assertion verifies (a) the API surface is reachable and (b) the
+# SECURITY: auth scheme is enforcing access control on protected routes.
+# SECURITY: Closes QA FINAL Issue #8 per AAP §0.5.2 Strategy I / R9.
+test_endpoint "API endpoint requires auth" "GET" "/api/courses" "401"
 
 echo ""
 echo "--- Auth Endpoints ---"
@@ -85,7 +94,16 @@ echo ""
 echo "--- Trinket Pages ---"
 test_endpoint "Python trinket page" "GET" "/python" "200"
 test_endpoint "HTML trinket page" "GET" "/html" "200"
-test_endpoint "Library page" "GET" "/library" "200"
+# SECURITY: /library has no top-level handler — only /library/trinkets/{path*}
+# SECURITY: and /library/folder/{slug} exist (config/routes.js — trinket.library /
+# SECURITY: folders.listView). A GET /library returns 404 by Hapi's default route
+# SECURITY: matching, which is correct behavior. Test the real public library
+# SECURITY: route GET /library/trinkets/python which returns 302 (redirect to
+# SECURITY: the language landing page when no trinket-id path component is
+# SECURITY: provided) — a 302 is a valid live-route response indicating the
+# SECURITY: route is registered and reachable. Closes QA FINAL Issue #8 per AAP
+# SECURITY: §0.5.2 Strategy I / R9.
+test_endpoint "Library trinkets path" "GET" "/library/trinkets/python" "302"
 
 echo ""
 echo "--- Error Handling ---"
