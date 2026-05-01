@@ -89,7 +89,7 @@
     "make-admin": "node scripts/make-admin.js",
     "lint:security": "eslint lib/ config/ serverside/python/manager/ serverside/r/manager/ serverside/java/manager/ serverside/pygame/manager/ --no-fix",
     "audit:security": "npm audit --audit-level=critical",
-    "test:security": "mocha --recursive test/security/ --reporter spec --check-leaks"
+    "test:security": "mocha --require ./test/setup.js --globals User,Course,Lesson,Material,Trinket,Interaction,Folder,CourseInvitation,File --recursive test/security/ --reporter spec --check-leaks"
   },
   "repository": {
     "type": "git",
