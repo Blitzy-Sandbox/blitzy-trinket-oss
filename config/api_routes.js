@@ -1563,7 +1563,12 @@ module.exports = [
     route : 'POST /api/exports users.requestExport',
     config : {
       auth: 'session',
-      // SECURITY: CSRF synchronizer-token protection per AAP §0.5.2 Strategy E / R5 (highest-risk export request route, non-SPA)
+      // SECURITY: CSRF synchronizer-token protection per AAP §0.5.2 Strategy E / R5 (highest-risk
+      //           export request route). Consumer is server-rendered jQuery AJAX in
+      //           lib/views/users/includes/data.html (NOT the AngularJS SPA). The data.html
+      //           template includes a hidden <input name="crumb" value="{{ crumb }}"> form and
+      //           serializes it into the $.ajax POST body so @hapi/crumb (restful: false,
+      //           source: 'payload') validates the synchronizer-token against the crumb cookie.
       plugins : { crumb : {} }
     }
   },

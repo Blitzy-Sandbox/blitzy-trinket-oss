@@ -22,6 +22,13 @@
       </div>
     </div>
 
+    {# SECURITY: CSRF synchronizer-token via @hapi/crumb per AAP §0.5.2 Strategy E / R5 / OWASP A01 (CWE-352) #}
+    {# SECURITY: /api/exports endpoint receives plugins : { crumb : {} } in config/api_routes.js #}
+    {# SECURITY: jQuery $('#request-export-form').serialize() collects this hidden input into the AJAX POST body for crumb validation #}
+    <form id="request-export-form" style="display:none">
+      <input type="hidden" name="crumb" value="{{ crumb }}" />
+    </form>
+
     <button id="request-export" class="button primary">
       Download All Trinkets
     </button>
@@ -177,9 +184,16 @@
     var $btn = $(this);
     $btn.prop('disabled', true).text('Starting export...');
 
+    // SECURITY: Include CSRF crumb token from hidden form in the POST body so
+    //           @hapi/crumb (config/api_routes.js: plugins: { crumb: {} }) validates
+    //           the request — fixes 403 Forbidden regression where data.html
+    //           jQuery AJAX bypassed CSRF protection added by AAP §0.5.2 Strategy E / R5.
+    //           Pattern matches lib/views/users/includes/email.html and password.html
+    //           (hidden form + $form.serialize() to send crumb as form-encoded payload).
     $.ajax({
       url: '/api/exports',
       method: 'POST',
+      data: $('#request-export-form').serialize(),
       dataType: 'json'
     })
     .done(function(result) {
