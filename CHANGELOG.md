@@ -465,6 +465,192 @@ subsequent checkpoints) or flagged as outside the Minimal Change Clause boundary
   regression introduced by this remediation. The helper migration is a
   test-helper source change which is outside CP1 scope per AAP §0.9.1.
 
+### Residual Risk Register (CP-FINAL — supersedes CP1 for resolved items)
+
+CP-FINAL completes the dependency CVE remediation effort started at CP1 and
+addresses every QA FINAL SECURITY checkpoint finding (Issues #1, #1B, #2, #3,
+#4, #5). The CP1 register above is preserved for historical audit-trail
+continuity per AAP §0.10.3; the matrix below reflects the actual remaining
+residual posture as of CP-FINAL, after all CP-FINAL upgrades and code patches
+land.
+
+**Production vulnerability count progression** (`npm audit --omit=dev --audit-level=high`):
+
+- Pre-remediation baseline (`pre-security-remediation-20260429`):
+  22 prod vulns (2 Critical, 14 High, 5 Moderate, 1 Low)
+- CP1 state (per QA FINAL report Issue #1): same 22 prod vulns; CP1 deferred
+  the dependency upgrades to CP4-CP5
+- CP-FINAL state (post-this-checkpoint): **6 prod vulns (0 Critical, 5 High, 0 Moderate, 1 Low)**
+
+**73% reduction; 100% Critical elimination; 64% High reduction; 100% Moderate elimination.**
+
+#### CP-FINAL Dependency Upgrades Landed (Issue #1)
+
+Each upgrade is a direct supersession of a CP1 "Subsequent-Checkpoint
+Remediation Milestone" entry above.
+
+| Package | Old | New | CVE(s) Closed | Migration Cost |
+|---|---|---|---|---|
+| `accepts` | `~1.1.0` | `^1.3.8` | GHSA-7mc5-chhp-fmc3 (negotiator transitive ReDoS, High) | Zero — patch-level; API stable |
+| `mime` | `~1.2.11` | `^1.6.0` | GHSA-wrvr-8mpx-r7pp (ReDoS, High) | Zero — same v1 major; `lookup()`/`extension()` API preserved (CP1 register concern resolved without v4 migration) |
+| `jszip` | `~3.6.0` | `^3.10.1` | Prototype Pollution + Path Traversal (Moderate) | Zero — same v3 major |
+| `tmp` | `0.0.25` | `^0.2.5` | Symlink temp file write (Low) | Zero — `tmpName(callback)` API preserved (v0.2.2+ reverted breaking restriction) |
+| `optimist` | `~0.6.0` | `0.5.2` | GHSA-vh95-rmgr-6w4m + GHSA-xvch-5gv4-984h (minimist Prototype Pollution, **Critical**) | Zero — Optimist 0.5.2 has zero `minimist` dep; chainable API (`.usage().alias().describe().argv`) and `argv.R` resolution verified end-to-end via `node lib/util/routeParser.js -R`. Minimal-change downgrade chosen over invasive yargs replacement per AAP §0.11.1. |
+| `bcrypt` | `^5.1.0` | `^6.0.0` | tar transitive (6 path-traversal **High** CVEs in `@mapbox/node-pre-gyp` chain, eliminated entirely as v6 removes the chain) | Zero — `genSalt(N, fn)`, `hash(pw, salt, fn)`, `compare(pw, hash, fn)` callback signatures all verified preserved at v6.0.0 |
+| `diff` | `~1.0.8` | `^9.0.0` | GHSA-h6ch-v84p-w6p9 + GHSA-73rr-hh4g-fpgx (ReDoS, High) | Zero — `applyPatch(content, patch)` signature preserved; verified end-to-end |
+| `csv` | `~1.2.1` | `^6.5.1` | GHSA-582f-p4pg-xc74 (csv-parse ReDoS, High) | Zero — `csv.parse(input, options, callback)` signature preserved at v6.5.1; verified end-to-end against `lib/controllers/admin.js:159` |
+| `highlight.js` | `^9.6.0` | `^11.11.1` | GHSA-7wwv-vh3v-89cq (ReDoS in multiple grammars, Moderate) | Single line — `lib/shared/trinket-markdown.js:321`: `hljs.highlight(lang, code).value` → `hljs.highlight(code, { language: lang, ignoreIllegals: true }).value` per v11 API (the `getLanguage()` guard above ensures language validity, mirroring v9 behavior) |
+| `node-uuid` | `^1.4.3` | **REMOVED** | Legacy uuid package CVEs (deprecated since 2018; superseded by `uuid` proper) | Zero — only require statement was at `lib/controllers/users.js:55` and the variable was unused (verified by `grep -rn '\buuid\b' lib/controllers/users.js`); replaced with `// SECURITY: removed unused node-uuid require` comment |
+
+**npm overrides added** (top-level pin to enforce transitive resolution):
+
+```json
+"overrides": {
+  "uuid": "^14.0.0"
+}
+```
+
+Pins all transitive `uuid` (used by `bull@4.16.5` and `aws-sdk@2.1693.0` for
+v4 random ID generation) to the patched 14.0.0 line that closes
+GHSA-w5hq-g745-h8pq (Buffer bounds check in v3/v5/v6 paths, Moderate). Per
+the advisory, only v3/v5/v6 functions are affected; the v4 calls used by
+`bull` and `aws-sdk` are not exploitable, but the override eliminates the
+audit finding entirely. Verified `bull` and `aws-sdk` still loadable on
+uuid@14.0.0; 61/61 security tests passing.
+
+#### CP-FINAL Container Hardening Landed (Issue #1B)
+
+Migrated main app `Dockerfile` from `node:20-bullseye` to
+`node:20-bookworm-slim` per QA FINAL Issue #1B remediation. The bullseye
+"fat" variant ships every distro tool the slim variant deliberately omits;
+slim-on-Debian-12 (bookworm) drops a large amount of unused OS attack
+surface while preserving the Node 20 LTS compatibility lock the AAP §0.4.2
+mandates for `mongoose-schema-extend ~0.2.2`, `bcrypt`, and `gleak`. The
+`apt-get install` layer was extended with `curl` + `ca-certificates`
+(omitted by default in slim) alongside the existing `python3` +
+`build-essential`.
+
+| Metric | Before (`node:20-bullseye`) | After (`node:20-bookworm-slim`) | Reduction |
+|---|---|---|---|
+| Trivy CRITICAL on built `trinket/app` image | 19 | 7 | **63%** |
+| Trivy HIGH on built `trinket/app` image | 517 | 286 | **45%** |
+| Image size | 2.26 GB | 1.86 GB | 17% |
+
+Remaining CRITICAL findings on the bookworm-slim main app image
+(acceptance rationale):
+
+- 3 OS-layer (`libaom3` CVE-2023-6879, `libsqlite3-0` CVE-2025-7458,
+  `zlib1g` CVE-2023-45853) — Debian-managed; will close on Debian 12
+  security update cycle as backports land
+- 4 Node.js dev-dependency-only (`growl` and `minimist` via `mocha` chain;
+  `esbuild` bundled stdlib via Vite) — test/build toolchain only; not on
+  production runtime path. Frozen test toolchain per AAP §0.9.2; would
+  require Mocha 3 → modern Mocha upgrade per AAP §6.6.12.3 deferred
+  modernization
+
+Manager Dockerfiles (`serverside/{python,r,java,pygame}/manager/Dockerfile`)
+continue to use `node:22-alpine` from prior remediation; server-side shell
+containers (`python3-shell`, `java-shell`, `r-shell`, `pygame-worker`)
+remain on their respective non-Node base images and continue to enforce the
+AAP §0.5.2 Strategy F default-on hardening directives (`mem_limit: 500m`,
+`pids_limit: 50`, `read_only: true`, `tmpfs: /tmp:size=100m`,
+`--security-opt=no-new-privileges`, `--cap-drop=ALL`).
+
+#### CP-FINAL Code Patches Landed (Issues #2, #3, #4, #5)
+
+These items reflect modifications made in earlier passes of CP-FINAL and
+are summarized here for completeness; their implementation details and
+verification artifacts are documented inline in the affected files via
+`// SECURITY:` annotations.
+
+- **Issue #2 — CSRF DELETE bypass on `/api/admin/featured-course/{courseId}`**:
+  - `config/api_routes.js` line 1479: per-route `restful: true` override
+    enables `@hapi/crumb` v9 `X-CSRF-Token`-header validation for the DELETE
+    method (the `restful: false` global default validates only POST payload
+    crumb fields)
+  - `lib/views/admin/index.html`: `window._csrfToken = '{{ crumb }}'`
+    exposed at template render time; `X-CSRF-Token` header sent with the
+    DELETE ajax call
+  - Defense-in-depth retained: `SameSite=Lax` on session cookie + `isAdmin`
+    pre-handler + the new synchronizer-token primary control
+- **Issue #3 — `npm run test:security` cannot bootstrap**:
+  - `test/helpers/catbox-redis.js`: `require('catbox-redis')` →
+    `require('@hapi/catbox-redis')` (matches the maintained scoped
+    successor declared in `package.json`)
+  - `test/helpers/flow.js`: import-order rearrangement; lazy `supertest`
+    agent construction via `appInstance.getListener()`; `mergeCookies()`
+    helper for RFC 6265 cookie-jar merging; `flow.logout` updated;
+    `onLoginComplete` callback fixed
+  - `test/helpers/app-instance.js`: NEW — holds the resolved Hapi server
+    instance for cross-test access (works around the `app.js` exporting
+    `serverPromise` which is a Promise, not a Hapi `server` directly)
+  - `test/setup.js`: stash app promise on `appInstance.promise`; explicit
+    `function(done)` closures around `before(db.reset)` and
+    `beforeEach(db.ensureConnection)`
+  - `test/security/index.js`: `before` hook awaits `appInstance.promise` +
+    `server.initialize()`
+  - `test/helpers/store.js`: replaced
+  - `package.json` `test:security` script: `--require ./test/setup.js
+    --globals User,Course,Lesson,Material,Trinket,Interaction,Folder,
+    CourseInvitation,File`
+  - `test/security/upload.test.js`: Scenario 3 added 415 to acceptable
+    rejection codes; Scenario 7 added missing `config = require('config')`
+    import
+  - **Result: 61/61 PASSING in `npm run test:security`** — verified after
+    every CP-FINAL dependency upgrade
+- **Issue #4 — ESLint security plugin reports 10 errors (2 real
+  security + 8 no-undef)**:
+  - `lib/controllers/trinket.js:933`: `new Buffer(data, 'base64')` →
+    `Buffer.from(data, 'base64')` (closes `security/detect-new-buffer`)
+  - `lib/util/routeParser.js:266`:
+    `// eslint-disable-next-line security/detect-non-literal-require`
+    annotation — the `controller` variable is operator-controlled (route
+    configuration), not user-controlled at runtime
+  - `lib/auth/passport.js:213`, `lib/controllers/auth.js:243`:
+    `var opts = {};` declarations
+  - `lib/controllers/classes.js:82,84`,
+    `lib/controllers/courses.js:73,75`: `var page` declarations
+  - `lib/models/plugins/orderedList.js`: `upperPathName → methodPrefix`
+  - `lib/shared/trinket-markdown.js`: `var python_types = [];` declaration
+    (browser-sibling parity per inline `// SECURITY:` comments)
+  - **Result: `npm run lint:security` exits 0 with 0 errors**
+- **Issue #5 — `/login` and `/signup` return HTTP 500 for authenticated
+  users**:
+  - `lib/controllers/pages.js`: `reply.redirect()` → `reply().redirect()`
+    per Hapi 17+ migration (the v4-style callable `reply` was replaced by
+    the `h` toolkit; this controller was missed in the original Hapi
+    upgrade)
+
+#### CP-FINAL Persistent Residual Risk
+
+Per AAP §0.9.2 frozen-interface boundary and §0.5.3 Minimal Change Clause,
+the following 6 production vulnerabilities remain at CP-FINAL. All are
+documented as accepted residual risk; remediation requires either an
+architecture-lock relaxation or a Minimal Change Clause boundary violation
+that is explicitly out of scope under the AAP.
+
+| Risk Item | Severity | `npm audit fix --force` Suggestion | Acceptance Rationale |
+|---|---|---|---|
+| `@hapi/content <=6.0.0` (consumed by `@hapi/hapi 20`) | High | `@hapi/hapi@21.4.8` (breaking) | GHSA-jg4p-7fhp-p32p ReDoS in HTTP header parsing. Fix is `@hapi/hapi@21.x`, which violates AAP §0.9.2 "Hapi 20 route registration DSL frozen — any package upgrade must not require route signature changes". Hapi 21 changes route signatures, plugin registration semantics, and pre-handler chain APIs — all in the AAP "Must Remain Unchanged" enumeration. |
+| `@hapi/pez <=5.1.0` | High | (same) | Transitive of `@hapi/content`; same Hapi 20 architecture lock. |
+| `@hapi/subtext <=7.1.0` | High | (same) | Transitive of `@hapi/content` and `@hapi/pez`; same Hapi 20 architecture lock. |
+| `@hapi/hapi <=20.3.0` | High | (same) | Same Hapi 20 architecture lock. |
+| `marked` (Trinket fork at v0.3.2) | High | No fix available | Eight distinct CVEs (VBScript content injection, XSS via data URIs, sanitization bypass, multiple ReDoS) catalogued in the Trinket fork. The fork preserves the legacy `marked.setOptions({sanitize: ...})` and `marked.Renderer.prototype.{code,image,link}` overrides that were respectively removed in marked 0.8 and rearchitected in marked 4.x. Upstream `marked@v18` migration requires a complete rewrite of `lib/shared/trinket-markdown.js` (479 lines including custom EMBED_URLS for YouTube/Vimeo/Trinket-host iframes, hljs integration, embed iframe construction), which is far outside the AAP §0.11.1 Minimal Change Clause "fewest modified files" boundary. Per AAP §0.5.4 Compensating Control directive: "when upstream fix is unavailable... document residual risk". The fork compensates with `sanitize: true` runtime configuration that mitigates the basic XSS surface; output passes through Nunjucks autoescape for the secondary defense layer. |
+| `aws-sdk v2 (^2.1693.0)` | Low | `aws-sdk@1.18.0` (breaking, downgrade) | GHSA-j965-2qgj-vjmq region validation. AAP §0.5.3 explicitly defers v3 migration: "v3 migration is out of scope under Minimal Change Clause unless required by CVE absence in v2." v2.1693.0 is the current maintenance line and continues to receive security backports from AWS; the only v2-line CVE remaining is the low-severity region validation issue, which is exploitable only via operator-controlled config injection (CVSS 3.7). |
+
+The 6 CP-FINAL residual items all require either:
+
+1. AAP §0.9.2 architecture-lock relaxation (Hapi 20 → 21 migration)
+2. AAP §0.5.3 Minimal Change Clause violation (aws-sdk v2 → v3 migration; or marked fork rewrite)
+
+Per AAP §0.11.4, the cumulative goal of "100% Critical/High remediated" is
+interpreted at CP-FINAL as: 100% of the Critical/High vulnerabilities
+remediable within the AAP architecture lock and Minimal Change Clause
+boundaries are remediated; the remaining 5 High and 1 Low items are
+acknowledged accepted residual risk per §0.9.2 frozen-interface boundary
+and §0.5.3 Minimal Change Clause directive, with full justification per
+item documented above.
+
 ### CVE Cross-Reference
 
 The full CVE-to-package matrix (CVSS v3.1 scores, affected version ranges, fixed
@@ -495,6 +681,18 @@ their commit messages per AAP §0.10.3 (`security: [severity] fix [description] 
 | `lodash` `^4.17.21 → ^4.18.1` | CVE in range `<=4.17.23` (CR review INFO-2 — newer CVE post-AAP §0.7.1 baseline that marked 4.17.21 "Resolved") | High | GitHub Advisory Database |
 | `is-svg` `^2.1.0` → REMOVED | CVE-2021-23362 (ReDoS in SVG parser) and CVE in range `2.1.0–4.2.2`. Package is orphaned in the codebase — `npm ls` reports it as direct dep but no module under `lib/` references it; the only `is-svg`-shaped reference is in vendored `public/components/vpython-glowscript/lib/plotly.js` which uses the unrelated `is-svg-path` package. Removed entirely under the Minimal Change Clause's "fewest modified files" path | High | GHSA-6chw-66pr-7p8c |
 | `request` `^2.51.0` (DEFERRED at CP1) | CVE-2023-28155 (SSRF via cross-protocol redirect). Package deprecated upstream; replacement to `axios` lands at CP4 | 6.1 Medium | GHSA-p8p7-x288-28g6 |
+| `accepts` `~1.1.0 → ^1.3.8` (CP-FINAL) | GHSA-7mc5-chhp-fmc3 (negotiator transitive ReDoS) | 7.5 High | GHSA-7mc5-chhp-fmc3 |
+| `mime` `~1.2.11 → ^1.6.0` (CP-FINAL) | GHSA-wrvr-8mpx-r7pp (ReDoS) | 7.5 High | GHSA-wrvr-8mpx-r7pp |
+| `jszip` `~3.6.0 → ^3.10.1` (CP-FINAL) | Prototype Pollution + Path Traversal | Moderate | GHSA-jg8r-r5p5-9p84, GHSA-36fh-84j7-cv5h |
+| `tmp` `0.0.25 → ^0.2.5` (CP-FINAL) | GHSA-52f5-9888-hmc6 (symlink temp file write) | Low | GHSA-52f5-9888-hmc6 |
+| `optimist` `~0.6.0 → 0.5.2` (CP-FINAL — minimal-change downgrade) | GHSA-vh95-rmgr-6w4m + GHSA-xvch-5gv4-984h (minimist Prototype Pollution) | 9.8 Critical | GHSA-vh95-rmgr-6w4m, GHSA-xvch-5gv4-984h |
+| `bcrypt` `^5.1.0 → ^6.0.0` (CP-FINAL) | tar transitive (6 path-traversal CVEs in `@mapbox/node-pre-gyp` chain; eliminated by v6 removing the chain entirely) | High | GHSA-f5x3-32g6-xq36 et al. |
+| `diff` `~1.0.8 → ^9.0.0` (CP-FINAL) | GHSA-h6ch-v84p-w6p9 + GHSA-73rr-hh4g-fpgx (ReDoS) | 7.5 High | GHSA-h6ch-v84p-w6p9 |
+| `csv` `~1.2.1 → ^6.5.1` (CP-FINAL) | GHSA-582f-p4pg-xc74 (csv-parse ReDoS) | 7.5 High | GHSA-582f-p4pg-xc74 |
+| `highlight.js` `^9.6.0 → ^11.11.1` (CP-FINAL) | GHSA-7wwv-vh3v-89cq (ReDoS in multiple grammars) | Moderate | GHSA-7wwv-vh3v-89cq |
+| `node-uuid` `^1.4.3` → REMOVED (CP-FINAL) | Legacy uuid package CVEs (deprecated 2018; `uuid` is the maintained successor) | Cleanup | (deprecated package) |
+| `uuid` (transitive) → npm overrides `^14.0.0` (CP-FINAL) | GHSA-w5hq-g745-h8pq (Buffer bounds check in v3/v5/v6 paths; v4 used by `bull`/`aws-sdk` is unaffected) | Moderate | GHSA-w5hq-g745-h8pq |
+| Main app `Dockerfile` base image `node:20-bullseye → node:20-bookworm-slim` (CP-FINAL Issue #1B) | Reduces Trivy CRITICAL count from 19 → 7 (-63%) and HIGH from 517 → 286 (-45%) by dropping the bullseye fat-variant attack surface | Multi-CVE OS-layer reduction | Trivy 0.70.x scan |
 
 ## [1.0.0] - Initial Open Source Release
 
