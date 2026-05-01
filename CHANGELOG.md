@@ -5,7 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.1.0] - 2026-04-30 - Security Remediation (Multi-Checkpoint)
+## [Unreleased] - Security Remediation (Multi-Checkpoint)
+
+> **Versioning note:** This entry is recorded as `[Unreleased]` per the
+> [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) convention because
+> the security remediation is committed to the working tree but no version
+> tag has been cut yet (the `package.json` `version` field remains `0.0.0`).
+> A formal release version (likely `1.1.0` per Semantic Versioning) will be
+> assigned when the maintainers tag the release. The pre-remediation
+> rollback baseline is at the git tag `pre-security-remediation-20260429`
+> (commit `adb5406`); see the rollback strategy below.
 
 This release implements the multi-class vulnerability remediation effort described in
 the project's security Agent Action Plan (AAP). Changes follow the Minimal Change
@@ -20,8 +29,10 @@ class per commit) with the message format `security: [severity] fix [description
 The remediation is partitioned across multiple review checkpoints (CP1–CP6+) to
 maintain the Minimal Change Clause boundary at each step. Each checkpoint's scope is
 constrained so that any single dependency upgrade, code change, or configuration
-change does not cascade into out-of-scope files. **This 1.1.0 entry aggregates work
-completed across all checkpoints landed to date; the section markers below indicate
+change does not cascade into out-of-scope files. **This `[Unreleased]` entry
+aggregates work completed across all checkpoints landed to date (and will be
+promoted to a formal release tag — likely `1.1.0` per Semantic Versioning —
+once the maintainers cut the release); the section markers below indicate
 the checkpoint at which each item lands.** Items marked `[Planned: CP4-CP6]` are
 described in the AAP but defer landing to subsequent checkpoints because the
 underlying dependency upgrade or consumer migration would otherwise touch
@@ -68,9 +79,12 @@ checkpoint and finalized at the last checkpoint.
   guard only fires when both `app.mail.from` and `app.mail.host` are set
   (mirroring `lib/util/mailer.js` `isConfigured()` so the default-yaml
   unconfigured-SMTP path still boots without a `mail.secret`). **Status at CP1:**
-  Implemented in `app.js` lines 103–132. Originally scoped for CP4; promoted to
-  CP1 after the QA Checkpoint 1 testing report (CRITICAL-2.1) demonstrated that
-  the guard was missing at runtime and required immediate remediation.
+  Implemented in `app.js` `init()` after the session-password guard (search for
+  `mailIsConfigured` / `mailSecret` to locate the block; line numbers drift as
+  the file evolves and are intentionally not pinned here). Originally scoped
+  for CP4; promoted to CP1 after the QA Checkpoint 1 testing report
+  (CRITICAL-2.1) demonstrated that the guard was missing at runtime and
+  required immediate remediation.
 - **R3 — reCAPTCHA Fail-Closed Posture** *(Landed at CP1 per QA finding 3.1)*:
   Modified `lib/util/recaptcha.js` to emit a `WARN`-level configuration log when
   reCAPTCHA is unconfigured; preserves the fail-open runtime behavior per the
@@ -163,10 +177,13 @@ checkpoint and finalized at the last checkpoint.
   default-skip function that only validates CSRF on routes that explicitly opt
   in via `options.plugins.crumb`. SPA-consumed routes are explicitly deferred to
   a follow-on iteration per the Risk Management section. **Status at CP1:**
-  Implemented in `app.js` lines 178–211. Originally scoped for CP4; promoted to
-  CP1 after the QA Checkpoint 1 testing report (CRITICAL-5.1) demonstrated a
-  successful CSRF-bypass password change without a crumb token, requiring
-  immediate remediation.
+  Implemented in `app.js` `init()` plugin registration block immediately after
+  the Yar session plugin (search for `Crumb` or `@hapi/crumb` to locate the
+  registration; line numbers drift as the file evolves and are intentionally
+  not pinned here). Originally scoped for CP4; promoted to CP1 after the QA
+  Checkpoint 1 testing report (CRITICAL-5.1) demonstrated a successful
+  CSRF-bypass password change without a crumb token, requiring immediate
+  remediation.
 - **R8 — Joi Validation Hardening** *(Landed at CP1 per QA findings 8.1, 8.2)*:
   Two targeted fixes in `lib/util/`:
   - `lib/util/helpers.js` `lowerUserFields` adds a `typeof === 'string'` guard

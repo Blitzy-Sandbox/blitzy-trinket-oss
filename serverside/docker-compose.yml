@@ -163,7 +163,7 @@ services:
     environment:
       - NODE_ENV=production
 
-  # Pygame - Manager 8400, Worker 8010 + VNC 6080
+  # Pygame - Manager 8100, Worker 8010 + VNC 6080
   pygame-worker:
     build: ./pygame/worker
     profiles: ["pygame"]

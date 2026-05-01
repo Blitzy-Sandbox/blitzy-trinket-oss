@@ -9,7 +9,7 @@ This guide will help you get Trinket running locally for development.
 
 That's it! Everything else runs inside Docker.
 
-> **Note on Node.js version:** The Docker image is built on **Node 20 LTS** (`node:20-bullseye`). Previous releases used Node 16, which reached end-of-life in September 2023; the upgrade is part of the security remediation that closes accumulated Bullseye OS-layer CVEs no longer receiving Node 16 backports. If you run any Node tooling **outside** the container (for example `npm install` on the host before opening the project in your editor, or running `npm audit`), install **Node 20 LTS** locally so your host environment matches the container runtime.
+> **Note on Node.js version:** The Docker image is built on **Node 20 LTS** (`node:20-bookworm-slim`). Previous releases used Node 16, which reached end-of-life in September 2023; the upgrade is part of the security remediation. An intermediate `node:20-bullseye` was superseded by `node:20-bookworm-slim` (Debian 12 slim variant) because the bullseye "fat" variant ships unused distro tooling and accumulated significantly more OS-layer CVEs (the migration reduced Trivy CRITICAL findings 19 → 7 / 63% and HIGH findings 517 → 286 / 45%; see `CHANGELOG.md` CP-FINAL Issue #1B for the full migration rationale). If you run any Node tooling **outside** the container (for example `npm install` on the host before opening the project in your editor, or running `npm audit`), install **Node 20 LTS** locally so your host environment matches the container runtime.
 
 ## Quick Start
 
@@ -22,7 +22,7 @@ cd trinket-oss
 cp config/local.example.yaml config/local.yaml
 
 # Start the services
-docker-compose up
+docker compose up
 ```
 
 Wait for the services to start. You'll see `Server started on port:` when ready.
@@ -45,17 +45,17 @@ The project uses SCSS for stylesheets. To compile:
 
 ```bash
 # One-time build
-docker-compose exec app npm run build:css
+docker compose exec app npm run build:css
 
 # Watch mode (recompiles on changes)
-docker-compose exec app npm run watch:css
+docker compose exec app npm run watch:css
 ```
 
 ### Viewing Logs
 
 ```bash
 # All services
-docker-compose logs -f
+docker compose logs -f
 
 # Just the app
 docker logs -f trinket
@@ -64,7 +64,7 @@ docker logs -f trinket
 ### Restarting the App
 
 ```bash
-docker-compose restart app
+docker compose restart app
 ```
 
 ### Creating an Admin User
@@ -72,7 +72,7 @@ docker-compose restart app
 After registering a user through the web interface, promote them to admin:
 
 ```bash
-docker-compose exec app npm run make-admin user@example.com
+docker compose exec app npm run make-admin user@example.com
 ```
 
 Admin users can access `/admin` for site administration features.
@@ -104,7 +104,7 @@ trinket-oss/
 | app | 3000 | Trinket web application |
 | mongodb | 17017 | MongoDB database |
 | redis | 16379 | Redis (optional - uses in-memory fallback if disabled) |
-| nginx | 443 | HTTPS proxy (optional) |
+| nginx (serverside) | 8080 | Reverse proxy for the serverside language services (optional 8443 once the operator manually uncomments the SSL listener in `serverside/docker-compose.yml`); no nginx service is defined in the root `docker-compose.yml` |
 
 ## Troubleshooting
 
@@ -112,21 +112,21 @@ trinket-oss/
 
 Run the CSS build:
 ```bash
-docker-compose exec app npm run build:css
+docker compose exec app npm run build:css
 ```
 
 ### Container won't start?
 
 Check logs:
 ```bash
-docker-compose logs app
+docker compose logs app
 ```
 
 ### Need to rebuild the container?
 
 ```bash
-docker-compose build app
-docker-compose up -d
+docker compose build app
+docker compose up -d
 ```
 
 ---

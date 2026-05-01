@@ -149,7 +149,9 @@ The nginx gateway in `serverside/nginx/nginx.conf` additionally sets `server_tok
 
 ### 7. Container Hardening (Adversarial Code Execution Tier)
 
-The shell containers (`python3-shell`, `java-shell`, `r-shell`, `pygame-worker`) execute untrusted learner code. They ship with the following hardening directives **enabled by default** in `serverside/docker-compose.yml`; operators may opt out by removing the relevant directive:
+The shell containers execute untrusted learner code and ship with hardening directives **enabled by default** in `serverside/docker-compose.yml`; operators may opt out by removing the relevant directive. Two hardening profiles are applied — **text shells** (`python3-shell`, `java-shell`, `r-shell`) receive the full hardening posture, while the **graphical worker** (`pygame-worker`) receives differential hardening because the graphical stack (Xvfb, TightVNC, noVNC, Supervisor) requires runtime writes that are incompatible with `read_only`/`tmpfs`.
+
+**Text shells (`python3-shell`, `java-shell`, `r-shell`) — full hardening:**
 
 - `mem_limit: 500m` and `mem_reservation: 375m` to bound memory exhaustion
 - `cpus: 1.0` and `cpu_shares: 512` to bound CPU consumption
@@ -157,6 +159,15 @@ The shell containers (`python3-shell`, `java-shell`, `r-shell`, `pygame-worker`)
 - `read_only: true` root filesystem with `tmpfs: /tmp:size=100m` for ephemeral writes
 - `security_opt: [no-new-privileges:true]` to block setuid escalation
 - `cap_drop: [ALL]` to remove the entire Linux capability surface
+
+**Pygame worker (`pygame-worker`) — differential hardening:**
+
+- `mem_limit: 1g` and `mem_reservation: 750m` (raised vs. text shells to accommodate the graphical environment)
+- `cpus: 2.0` and `cpu_shares: 512` (raised vs. text shells for Xvfb + Pygame rendering)
+- `pids_limit: 100` (raised vs. text shells to accommodate Supervisor-managed child processes)
+- `security_opt: [no-new-privileges:true]` to block setuid escalation (no graphical conflict)
+- `cap_drop: [ALL]` to remove the entire Linux capability surface, then `cap_add: [SETUID, SETGID, SETPCAP]` for Supervisor's setuid → trinket user transition (required for the graphical stack to start under a non-root identity)
+- `read_only` and `tmpfs: /tmp:size=100m` are **intentionally omitted** because Xvfb (`/tmp/.X11-unix/`), TightVNC (`~/.vnc/`), Supervisor (`/var/run/supervisor/`), and noVNC require multiple writable paths at runtime. See [`serverside/README.md`](serverside/README.md) ("Pygame worker — differential hardening" section) for the full rationale.
 
 The reverse proxy (nginx) further isolates the shell tier from direct internet exposure.
 
@@ -211,7 +222,7 @@ The most recent comprehensive security remediation addressed:
 - **HTTP security headers** — `Content-Security-Policy`, `X-Content-Type-Options: nosniff`, and `Referrer-Policy: strict-origin-when-cross-origin` added to main application responses; `X-Frame-Options: deny` extended to admin paths
 - **CSRF synchronizer tokens** — `@hapi/crumb` registered and applied to the highest-risk mutating endpoints (`/api/exports`, password/email change in `/api/users`, `/api/admin/*`)
 - **Container hardening** — shell-tier hardening directives (`mem_limit`, `pids_limit`, `read_only`, `tmpfs`, `no-new-privileges`, `cap_drop: [ALL]`) promoted from operator-opt-in to default-on in `serverside/docker-compose.yml`
-- **EOL runtime** — main application Docker base image upgraded from `node:16-bullseye` (EOL September 2023) to `node:20-bullseye` LTS
+- **EOL runtime** — main application Docker base image upgraded from `node:16-bullseye` (EOL September 2023) to `node:20-bookworm-slim` LTS, eliminating accumulated Bullseye OS-layer CVEs (Trivy CRITICAL: 19 → 7 / 63%, HIGH: 517 → 286 / 45%; image size 2.26 GB → 1.86 GB / 17%). An intermediate `node:20-bullseye` was superseded by `node:20-bookworm-slim` (Debian 12 slim variant) per the QA FINAL Issue #1B remediation; see [CHANGELOG.md](CHANGELOG.md) for the full migration metrics
 - **nginx hardening** — `server_tokens off` and `X-Content-Type-Options: nosniff` added to the gateway configuration in `serverside/nginx/nginx.conf`
 - **Automated security testing** — new Mocha-based regression suite under `test/security/` (auth, access control, injection, session, upload) and a CI pipeline integrating `npm audit`, Trivy, and ESLint security plugin
 

@@ -34,7 +34,7 @@ Trinket lets students and educators write and run code directly in the browser, 
 
 3. Start the services:
    ```bash
-   docker-compose up
+   docker compose up
    ```
 
 4. Visit http://localhost:3000 in your browser.

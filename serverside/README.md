@@ -496,7 +496,7 @@ These ports are internal to the Docker network. Only nginx port 8080 is exposed 
 | java-shell | 8010 | Code execution |
 | r-manager | 8300 | WebSocket routing |
 | r-shell | 8010 | Code execution |
-| pygame-manager | 8400 | WebSocket routing |
+| pygame-manager | 8100 | WebSocket routing |
 | pygame-worker | 8010, 6080 | Code execution + VNC |
 
 ## Troubleshooting

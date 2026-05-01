@@ -36,7 +36,7 @@ Open an issue with the `enhancement` label describing:
    ```
 3. Start the development environment:
    ```bash
-   docker-compose up
+   docker compose up
    ```
 
 ### Making Changes
