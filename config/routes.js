@@ -4,7 +4,11 @@ var Joi               = require('joi'),
     helpers           = require('../lib/util/helpers'),
     config            = require('config'),
     constants         = require('./constants'),  // Ensure constants is loaded
-    reservedUsernames = yaml.safeLoad(fs.readFileSync(__dirname + '/reserved.yaml', 'utf8')),
+    // SECURITY: js-yaml ^4.1.0 removed yaml.safeLoad; yaml.load is now safe by
+    // default (uses DEFAULT_SCHEMA without function/regexp tag support), so the
+    // semantics of the previous safeLoad call are preserved (CVE remediation
+    // for js-yaml ~3.0.1 per AAP §0.4.1; QA finding #6).
+    reservedUsernames = yaml.load(fs.readFileSync(__dirname + '/reserved.yaml', 'utf8')),
     routes;
 
 // Make recaptcha optional when not configured
