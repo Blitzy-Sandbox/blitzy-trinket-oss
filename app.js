@@ -175,6 +175,18 @@ const init = async () => {
     const response = request.response;
     const addXFrame = config.app.xframeDeny && config.app.xframeDeny.indexOf(request.url.pathname) >= 0;
 
+    // SECURITY: defense-in-depth Content-Security-Policy. The frame-ancestors directive
+    // is route-aware: it is only emitted for routes already in config.app.xframeDeny
+    // (the same routes that receive X-Frame-Options: deny). All other routes — notably
+    // /embed/*, /assignment-embed/*, and the trinket player routes (/python, /skulpt,
+    // /vpython, /webvpython, /r, etc.) — deliberately omit frame-ancestors so that
+    // deployed Trinket embeds remain framable from third-party origins. This preserves
+    // the User Example contract from AAP §0.1.2: "Socket.IO protocol contract between
+    // browser embeds and nginx gateway unchanged — consumed by deployed embeds in
+    // third-party iframes."
+    const cspBase = "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-eval' https://www.google.com https://www.gstatic.com https://cdnjs.cloudflare.com; frame-src 'self' https://www.google.com; connect-src 'self' wss: https:";
+    const csp = addXFrame ? (cspBase + "; frame-ancestors 'self'") : cspBase;
+
     if (response.isBoom) {
       const statusCode = response.output.statusCode;
 
@@ -189,15 +201,27 @@ const init = async () => {
                         (!acceptHeader.includes('application/json') && !isApiRequest);
 
       if (!isApiRequest && wantsHtml) {
+        // SECURITY: attach defense-in-depth headers to the rendered HTML error view /
+        // redirect response. Without this, HTML browser-style 401/403/404/500 responses
+        // bypass the security-header injection below, because h.view().code() and
+        // h.redirect().takeover() short-circuit the function and the resulting response
+        // object does not re-enter this onPreResponse extension. (Pre-existing
+        // Cache-Control / Pragma / Expires / X-Frame-Options gaps on these paths are
+        // out of scope for this checkpoint and are preserved as-is.)
+        const attachSecurity = (resp) => resp
+          .header('X-Content-Type-Options', 'nosniff')
+          .header('Referrer-Policy', 'strict-origin-when-cross-origin')
+          .header('Content-Security-Policy', csp);
+
         if (statusCode === 401) {
           // Redirect to login for unauthorized page requests
-          return h.redirect('/login').takeover();
+          return attachSecurity(h.redirect('/login')).takeover();
         } else if (statusCode === 404) {
-          return h.view('404.html').code(404);
+          return attachSecurity(h.view('404.html').code(404));
         } else if (statusCode === 403) {
-          return h.view('50x.html').code(403);
+          return attachSecurity(h.view('50x.html').code(403));
         } else if (statusCode >= 500) {
-          return h.view('50x.html').code(statusCode);
+          return attachSecurity(h.view('50x.html').code(statusCode));
         }
       }
 
@@ -212,7 +236,7 @@ const init = async () => {
       // SECURITY: defense-in-depth response headers
       response.output.headers['X-Content-Type-Options'] = 'nosniff';
       response.output.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin';
-      response.output.headers['Content-Security-Policy'] = "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-eval' https://www.google.com https://www.gstatic.com https://cdnjs.cloudflare.com; frame-src 'self' https://www.google.com; connect-src 'self' wss: https:; frame-ancestors 'self'";
+      response.output.headers['Content-Security-Policy'] = csp;
     }
     else if (response.header) {
       response.header('Cache-Control', cache_control);
@@ -226,7 +250,7 @@ const init = async () => {
       // SECURITY: defense-in-depth response headers
       response.header('X-Content-Type-Options', 'nosniff');
       response.header('Referrer-Policy', 'strict-origin-when-cross-origin');
-      response.header('Content-Security-Policy', "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-eval' https://www.google.com https://www.gstatic.com https://cdnjs.cloudflare.com; frame-src 'self' https://www.google.com; connect-src 'self' wss: https:; frame-ancestors 'self'");
+      response.header('Content-Security-Policy', csp);
     }
 
     return h.continue;
