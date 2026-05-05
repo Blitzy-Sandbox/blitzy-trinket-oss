@@ -1,5 +1,6 @@
-# Use Node 16 LTS (compatible with updated packages)
-FROM node:16-bullseye
+# Use Node 20 LTS (Active LTS, OpenSSL 3.x)
+# SECURITY: upgraded from node:16-bullseye to address Node 16 EOL exposure (CWE-1104)
+FROM node:20-bookworm-slim
 
 SHELL ["/bin/bash", "-c"]
 
