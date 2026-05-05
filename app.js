@@ -64,6 +64,28 @@ const init = async () => {
     console.error('='.repeat(70) + '\n');
     process.exit(1);
   }
+
+  // SECURITY: enforce minimum-entropy on JWT signing secret (CVE-2022-23540 defense-in-depth)
+  // When email is enabled (mail.from is set), the email-share token flow signs JWTs with
+  // config.app.mail.secret. A short or missing secret weakens the algorithm-pin defense
+  // against algorithm-confusion attacks. Per the graceful-degradation contract, we WARN
+  // (not exit) so that operators with email intentionally disabled can still boot; the
+  // controllers in lib/controllers/trinket.js will fail closed when issuing tokens with
+  // a too-short secret.
+  if (config.app && config.app.mail && config.app.mail.from) {
+    const mailSecret = config.app.mail.secret;
+    if (!mailSecret || mailSecret.length < 32) {
+      console.warn('\n' + '='.repeat(70));
+      console.warn('WARNING: JWT email-share secret (config.app.mail.secret) is missing or shorter than 32 characters.');
+      console.warn('Email-share token issuance will fail closed. Set a 32+ character secret in config/local.yaml:');
+      console.warn('');
+      console.warn('  app:');
+      console.warn('    mail:');
+      console.warn("      secret: 'your-secure-jwt-secret-at-least-32-characters'");
+      console.warn('='.repeat(70) + '\n');
+    }
+  }
+
   // Create server with Hapi 20+ configuration
   const server = Hapi.server({
     host: config.app.hostname || 'localhost',
@@ -186,6 +208,11 @@ const init = async () => {
       if (addXFrame) {
         response.output.headers['X-Frame-Options'] = 'deny';
       }
+
+      // SECURITY: defense-in-depth response headers
+      response.output.headers['X-Content-Type-Options'] = 'nosniff';
+      response.output.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin';
+      response.output.headers['Content-Security-Policy'] = "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-eval' https://www.google.com https://www.gstatic.com https://cdnjs.cloudflare.com; frame-src 'self' https://www.google.com; connect-src 'self' wss: https:; frame-ancestors 'self'";
     }
     else if (response.header) {
       response.header('Cache-Control', cache_control);
@@ -195,6 +222,11 @@ const init = async () => {
       if (addXFrame) {
         response.header('X-Frame-Options', 'deny');
       }
+
+      // SECURITY: defense-in-depth response headers
+      response.header('X-Content-Type-Options', 'nosniff');
+      response.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+      response.header('Content-Security-Policy', "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-eval' https://www.google.com https://www.gstatic.com https://cdnjs.cloudflare.com; frame-src 'self' https://www.google.com; connect-src 'self' wss: https:; frame-ancestors 'self'");
     }
 
     return h.continue;
