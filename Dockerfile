@@ -5,8 +5,13 @@ FROM node:20-bookworm-slim
 SHELL ["/bin/bash", "-c"]
 
 # Install build dependencies
+# SECURITY: curl is required by the `RUN curl -L ... public-components.tgz`
+# step below; it is provided by the legacy `node:16-bullseye` image but is
+# absent from the `node:20-bookworm-slim` image we adopted to remediate the
+# Node 16 EOL exposure (CWE-1104). Adding curl to the apt-get install list
+# closes the resulting build regression. QA finding #2.
 RUN apt-get update \
-    && apt-get install -y python3 build-essential \
+    && apt-get install -y python3 build-essential curl \
     && apt-get -y autoclean
 
 # Install global tools
