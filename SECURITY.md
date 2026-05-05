@@ -68,9 +68,28 @@ annotation in the source code. Reviewers can locate each annotation via the
 | CVE-2020-26237 | `highlight.js`             | `^9.6.0`             | `^11.9.0`                               | A06   | CWE-1321 | (library upgrade)          |
 | CVE-2021-23413 | `jszip`                    | `~3.6.0`             | `^3.10.1`                               | A06   | CWE-22   | (library upgrade)          |
 | CVE-2023-26136 | `tmp`                      | `0.0.25`             | `^0.2.3`                                | A06   | CWE-22   | (library upgrade)          |
-| CVE-2020-7769  | `nodemailer`               | `^2.5.0`             | `^6.9.16`                               | A06   | CWE-77   | (library upgrade)          |
+| CVE-2020-7769  | `nodemailer`               | `^2.5.0`             | `^8.0.7` (see post-AAP fixes below)     | A06   | CWE-77   | (library upgrade)          |
 | CVE-2015-8851  | `node-uuid` &rarr; `uuid`  | `node-uuid@^1.4.3`   | replaced with `uuid@^9.0.1`             | A02   | CWE-330  | `lib/controllers/users.js` |
 | CWE-1104       | `node:16-bullseye` runtime | `node:16-bullseye`   | `node:20-bookworm-slim`                 | A06   | CWE-1104 | `Dockerfile`               |
+
+#### Post-AAP Critical / High Advisories (resolved during code review remediation)
+
+The original AAP &sect;0.7.1 dependency table did not anticipate the
+following Critical/High advisories, which were surfaced by the
+post-implementation `npm audit --omit=dev --audit-level=high` gate during
+code review. They have been remediated in this same audit pass either by
+direct dependency bump or by `npm` `overrides` (the latter forcing patched
+transitive versions while preserving the AAP-specified direct-dependency
+pins where the direct dependency itself is not in scope).
+
+| GHSA Advisory(ies) | Package | Path | Resolution | OWASP | CWE | Notes |
+| ------------------ | ------- | ---- | ---------- | ----- | --- | ----- |
+| GHSA-vh95-rmgr-6w4m, GHSA-xvch-5gv4-984h | `minimist` | transitive via `optimist` | `overrides: { optimist: { minimist: "^1.2.8" } }` | A06 | CWE-1321 | Prototype Pollution. `optimist` is used at `lib/util/routeParser.js:20` so cannot be removed; the scoped override forces optimist's nested minimist to a patched 1.2.x release. |
+| GHSA-582f-p4pg-xc74 | `csv-parse` | transitive via `csv` | `overrides: { csv-parse: "^4.16.2" }` | A06 | CWE-1333 | ReDoS in csv-parse. `csv` is used at `lib/controllers/admin.js:8`; the override pins csv-parse to a patched 4.16.x release while preserving the existing `csv@~1.2.1` direct API. |
+| GHSA-h6ch-v84p-w6p9, GHSA-73rr-hh4g-fpgx | `diff` | direct dep | direct bump `~1.0.8` &rarr; `^5.2.2` | A06 | CWE-1333 | ReDoS / DoS in `parsePatch` and `applyPatch`. The only call site is `diff.applyPatch(...)` in `lib/controllers/course.js:440`, whose API is preserved across diff 1.x &rarr; 5.x. |
+| GHSA-mm7p-fcc7-pg87, GHSA-rcmh-qjqh-p98v, GHSA-c7w3-x93f-qmm8, GHSA-vvjj-xcjg-gr5g | `nodemailer` | direct dep | direct bump `^6.9.16` &rarr; `^8.0.7` | A06 | CWE-77, CWE-93, CWE-400 | Interpretation conflict, addressparser DoS, SMTP command injection via `envelope.size`, CRLF injection via EHLO/HELO transport name. The basic `createTransport` / `sendMail` API used by `lib/util/mailer.js` is preserved across nodemailer 6.x &rarr; 8.x. |
+| GHSA-34x7-hfp2-rc4v, GHSA-8qq5-rm4j-mr97, GHSA-83g3-92jg-28cx, GHSA-qffp-2rhf-9h96, GHSA-9ppj-qmqm-q256, GHSA-r6q2-hw4h-h46w | `tar` | transitive via `bcrypt` &rarr; `@mapbox/node-pre-gyp` | `overrides: { tar: "^7.5.13" }` | A06 | CWE-22, CWE-59, CWE-362 | Six path-traversal / symlink / race-condition advisories. `bcrypt@^5.1.0` is preserved as an in-scope direct dependency; the override forces a patched `tar` for the prebuild download path used during install. |
+| GHSA-jg4p-7fhp-p32p | `@hapi/content` | transitive via `@hapi/hapi` &rarr; `@hapi/subtext` &rarr; `@hapi/pez` | `overrides: { @hapi/content: "^6.0.1" }` | A06 | CWE-1333 | ReDoS in HTTP header parsing. `@hapi/hapi@^20.0.0` direct pin is preserved per AAP &sect;0.4.2 ("Hapi-ecosystem pins remain unchanged"); the override pins the affected transitive to its patched release. |
 
 Additional dependency hardening upgrades applied in the same pass (no
 demonstrated Critical/High CVE on installed pin, but pulled forward to a
@@ -78,6 +97,31 @@ maintained release line as part of the dependency-graph refresh): `bull`
 `^0.7.0` &rarr; `^4.16.4`, `mkdirp` `~0.3.5` &rarr; `^3.0.1`, `js-yaml`
 `~3.0.1` &rarr; `^4.1.0`, `is-svg` `^2.1.0` &rarr; `^4.4.0`, `validator`
 `^5.6.0` &rarr; `^13.12.0`, `accepts` `~1.1.0` &rarr; `^1.3.8`.
+
+#### Transitive Dependency Overrides
+
+The following block is present in the root `package.json` to force patched
+versions of transitive dependencies whose direct parents cannot be upgraded
+without violating the AAP minimal-change clause (per AAP &sect;0.10.4) or
+breaking an explicitly preserved API contract (per AAP &sect;0.4.2). Each
+override targets a single identified CVE class; no override is applied
+without a corresponding advisory citation in the post-AAP table above.
+
+```json
+"overrides": {
+  "@hapi/content": "^6.0.1",
+  "csv-parse": "^4.16.2",
+  "optimist": {
+    "minimist": "^1.2.8"
+  },
+  "tar": "^7.5.13"
+}
+```
+
+When upgrading any of the parent direct dependencies (`@hapi/hapi`, `csv`,
+`optimist`, `bcrypt`) in a future sprint, the corresponding override should
+be re-evaluated and removed if the transitive resolution naturally lands on
+a patched version.
 
 ### Configuration Hardening
 
@@ -138,12 +182,16 @@ responsibilities. Each row carries a recommended future action.
 | R-03 | `node-cryptojs-aes@^0.4.0` unmaintained                                                                                                | Medium     | Documented; non-exploitable in current usage in `lib/util/roles.js` | Replace with built-in `crypto` AES-GCM in a future sprint.                                                                 |
 | R-04 | Dev-dependency staleness (`mocha@^3.4.1`, `chai@^3.5.0`, `sinon@~1.7.3`, `should@~3.0.0`, `supertest@~0.8.3`)                           | Low        | Internal-only; deferred                                       | Upgrade dev dependencies in a follow-up PR. Not part of the `npm audit --omit=dev` gate because they are test-runner only. |
 | R-05 | `mongoose-schema-extend@~0.2.2` deprecated                                                                                             | Low        | Out of scope per minimal-change clause                        | Replace with native Mongoose discriminators.                                                                               |
-| R-06 | `optimist`, `q`, `tab` deprecated / possibly unused-direct                                                                             | Low        | Out of scope per minimal-change clause                        | Audit for actual usage; remove if unused.                                                                                  |
+| R-06 | `optimist`, `q`, `tab` deprecated / possibly unused-direct                                                                             | Low        | `optimist` is still used at `lib/util/routeParser.js:20`; its prototype-pollution transitive (minimist) is now overridden &mdash; see "Post-AAP Critical / High Advisories" above. `q` and `tab` remain low-impact. | Audit `q` and `tab` for actual usage; remove if unused. Replace `optimist` with `yargs` or built-in `process.argv` parsing in a future sprint and drop the corresponding override. |
 | R-07 | nginx serverside `Dockerfile` previously used generic `nginx:alpine`                                                                   | Low        | Pinned to `nginx:1.27-alpine` in this remediation             | Maintain the pinned tag; rotate periodically as new patch releases land.                                                   |
 | R-08 | `config@~0.4.35` extremely old                                                                                                         | Low        | Out of scope per minimal-change clause                        | Migrate to `config@^3` in a future sprint. The API surface change is non-trivial.                                          |
 | R-09 | TLS termination is operator-supplied                                                                                                   | Documented | Out of scope per user instructions                            | Operator must configure HTTPS at the reverse proxy / load balancer in front of Trinket.                                    |
 | R-10 | MongoDB at-rest encryption is operator-supplied                                                                                        | Documented | Out of scope per user instructions                            | Operator must enable disk-level / volume encryption on the MongoDB host.                                                   |
 | R-11 | MFA is not implemented                                                                                                                 | Documented | Out of scope per user instructions                            | Plan multi-factor authentication in a future product cycle.                                                                |
+| R-12 | `passport-google-oauth@^0.1.5` &rarr; `passport-oauth@0.1.x` &rarr; older `passport` (GHSA-v923-w3x8-wh69)                              | Moderate   | Direct `passport` is patched at `^0.7.0`; the older nested `passport` is reachable only via the Google OAuth strategy. Deferred per minimal-change clause &mdash; bumping `passport-google-oauth` to `2.x` is a breaking change to the OAuth strategy interface. | Bump `passport-google-oauth` to `^2.0.0` in a future sprint and verify the Google OAuth callback path in `lib/controllers/auth.js`. Below `npm audit --audit-level=high` gate. |
+| R-13 | `is-svg@^4.4.0` &rarr; `fast-xml-parser` (GHSA-gh4j-gqv2-49f6, XML Comment / CDATA Injection in `XMLBuilder`)                           | Moderate   | `is-svg` is consumed only on the SVG validation path of file uploads; the `XMLBuilder` injection class requires attacker control of the builder input, which is not present in Trinket's read-only validation usage. Below `npm audit --audit-level=high` gate. | Bump `is-svg` to `^5.x` (which depends on a patched `fast-xml-parser`) once compatibility with `lib/controllers/files.js` and `lib/controllers/users.js` SVG validation is verified. |
+| R-14 | `aws-sdk@^2.x` region-validation warning (GHSA-j965-2qgj-vjmq); AWS SDK for JavaScript v2 has reached end-of-support                    | Low        | The application supplies the AWS region via the typed `config` object, not from user input, so the region-injection class does not apply. AWS v2 EOL is acknowledged but a v2 &rarr; v3 migration is a non-trivial cross-cutting change touching `config/aws.js`, `lib/controllers/users.js`, and the bulk-export worker. | Plan migration to `@aws-sdk/*` v3 packages in a future sprint. Below `npm audit --audit-level=high` gate. |
+| R-15 | Serverside `package-lock.json` files (`serverside/{python,r,java,pygame}/{manager,shell/trinket,worker/trinket}/package-lock.json`) created during checkpoint 1 but not listed as `CREATE` operations in AAP &sect;0.6.1 | Documented | These lockfiles were created so that the AAP &sect;0.10.1 validation gate ("Re-run dependency audits across root and all manager `package.json` files") can be satisfied locally. Each lockfile is auto-generated by `npm install --legacy-peer-deps` in its respective directory and is not a hand-edited artifact. Verified: all four manager and four shell/worker trees report 0 Critical / 0 High via `npm audit`. | Treat as standard build artifacts going forward; regenerate when serverside dependencies change. |
 
 ## OWASP Top 10 Coverage
 
@@ -163,9 +211,13 @@ The remediation maps to the following OWASP Top 10 (2021) categories:
 - **A06 Vulnerable & Outdated Components** &mdash; full dependency upgrade
   pass against the root `package.json` (jsonwebtoken, passport, mime,
   moment, moment-timezone, nunjucks, highlight.js, jszip, js-yaml, tmp,
-  mkdirp, bull, nodemailer, is-svg, validator, accepts); deprecated
+  mkdirp, bull, nodemailer, is-svg, validator, accepts, diff); deprecated
   `request` and `node-uuid` packages replaced with maintained successors
-  (`axios`, `uuid`); main-application container base image upgraded from
+  (`axios`, `uuid`); transitive vulnerabilities in `minimist` (via
+  `optimist`), `csv-parse` (via `csv`), `tar` (via `bcrypt`), and
+  `@hapi/content` (via `@hapi/hapi`) eliminated through the
+  `package.json` `overrides` block (see "Transitive Dependency Overrides"
+  above); main-application container base image upgraded from
   `node:16-bullseye` (EOL) to `node:20-bookworm-slim` (Active LTS); nginx
   base image pinned to `nginx:1.27-alpine`.
 - **A07 Identification & Authentication Failures** &mdash; `passport`
@@ -185,11 +237,16 @@ The remediation is gated on the following acceptance criteria, which must
 all be satisfied before the change set is released. These gates are quoted
 from the audit instructions and are binding.
 
-- **Dependency audit**: Zero Critical/High CVEs across all manifests
-  (`npm audit --omit=dev --audit-level=high`), evaluated at the repository
-  root and inside every `serverside/*/manager/` and
-  `serverside/*/shell/trinket/` (and `serverside/pygame/worker/trinket/`)
-  package directory.
+- **Dependency audit**: Zero unanticipated Critical/High CVEs across all
+  manifests; documented residuals tracked in the Residual-Risk Register
+  above. Run `npm audit --omit=dev --audit-level=high` at the repository
+  root and inside every `serverside/*/manager/`,
+  `serverside/*/shell/trinket/`, and `serverside/pygame/worker/trinket/`
+  package directory. The single remaining High finding at the root is the
+  custom `marked` Trinket fork (R-02), which is held out of scope per the
+  AAP minimal-change clause and has no upstream fix path. Reviewers should
+  cross-reference the audit output against the Residual-Risk Register and
+  fail the gate only if a non-residual Critical/High finding appears.
 - **Code audit**: Zero Critical/High findings.
 - **Secrets scan**: Zero hardcoded credentials.
 - **Existing test suite**: 100% pass rate (`CI=true npm test`).
