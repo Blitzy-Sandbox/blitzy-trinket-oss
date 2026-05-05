@@ -25,7 +25,7 @@
     "config": "~0.4.35",
     "csv": "~1.2.1",
     "debug": "^4.3.0",
-    "diff": "~1.0.8",
+    "diff": "^5.2.2",
     "escape-string-regexp": "~1.0.5",
     "file-type": "^3.8.0",
     "highlight.js": "^11.9.0",
@@ -46,7 +46,7 @@
     "mongoose": "^6.0.0",
     "mongoose-schema-extend": "~0.2.2",
     "node-cryptojs-aes": "^0.4.0",
-    "nodemailer": "^6.9.16",
+    "nodemailer": "^8.0.7",
     "numeral": "^1.5.3",
     "nunjucks": "^3.2.4",
     "optimist": "~0.6.0",
@@ -78,6 +78,14 @@
     "sinon-chai": "^2.5.0",
     "supertest": "~0.8.3",
     "vite": "^4.5.14"
+  },
+  "overrides": {
+    "@hapi/content": "^6.0.1",
+    "csv-parse": "^4.16.2",
+    "optimist": {
+      "minimist": "^1.2.8"
+    },
+    "tar": "^7.5.13"
   },
   "scripts": {
     "test": "mocha",
