@@ -63,11 +63,10 @@ annotation in the source code. Reviewers can locate each annotation via the
 | CVE-2017-16138 | `mime`                     | `~1.2.11`            | `^3.0.0`                                | A06   | CWE-1333 | (library upgrade; API call-sites updated in `lib/controllers/files.js`, `lib/controllers/users.js`, `lib/controllers/trinket.js`) |
 | CVE-2022-24785 | `moment`                   | `^2.18.1`            | `^2.30.1`                               | A06   | CWE-22   | (library upgrade)          |
 | CVE-2022-31129 | `moment`                   | `^2.18.1`            | `^2.30.1`                               | A06   | CWE-1333 | (library upgrade)          |
-| CVE-2022-24999 | `moment-timezone`          | `~0.5.21`            | `^0.5.45`                               | A06   | CWE-1321 | (library upgrade)          |
-| CVE-2022-37489 | `nunjucks`                 | `^3.2.0`             | `^3.2.4`                                | A06   | CWE-1336 | (library upgrade)          |
+| CVE-2023-2142  | `nunjucks`                 | `^3.2.0`             | `^3.2.4`                                | A06   | CWE-79   | (library upgrade)          |
 | CVE-2020-26237 | `highlight.js`             | `^9.6.0`             | `^11.9.0`                               | A06   | CWE-1321 | (library upgrade)          |
 | CVE-2021-23413 | `jszip`                    | `~3.6.0`             | `^3.10.1`                               | A06   | CWE-22   | (library upgrade)          |
-| CVE-2023-26136 | `tmp`                      | `0.0.25`             | `^0.2.3`                                | A06   | CWE-22   | (library upgrade)          |
+| CVE-2025-54798 | `tmp`                      | `0.0.25`             | `^0.2.3` (lockfile resolves `0.2.5` &ge; patched `0.2.4`) | A06 | CWE-59   | (library upgrade)          |
 | CVE-2020-7769  | `nodemailer`               | `^2.5.0`             | `^8.0.7` (see post-AAP fixes below)     | A06   | CWE-77   | (library upgrade)          |
 | CVE-2015-8851  | `node-uuid` &rarr; `uuid`  | `node-uuid@^1.4.3`   | replaced with `uuid@^9.0.1`             | A02   | CWE-330  | `lib/controllers/users.js` |
 | CWE-1104       | `node:16-bullseye` runtime | `node:16-bullseye`   | `node:20-bookworm-slim`                 | A06   | CWE-1104 | `Dockerfile`               |
@@ -96,7 +95,14 @@ demonstrated Critical/High CVE on installed pin, but pulled forward to a
 maintained release line as part of the dependency-graph refresh): `bull`
 `^0.7.0` &rarr; `^4.16.4`, `mkdirp` `~0.3.5` &rarr; `^3.0.1`, `js-yaml`
 `~3.0.1` &rarr; `^4.1.0`, `is-svg` `^2.1.0` &rarr; `^4.4.0`, `validator`
-`^5.6.0` &rarr; `^13.12.0`, `accepts` `~1.1.0` &rarr; `^1.3.8`.
+`^5.6.0` &rarr; `^13.12.0`, `accepts` `~1.1.0` &rarr; `^1.3.8`,
+`moment-timezone` `~0.5.21` &rarr; `^0.5.45` (note: an earlier draft of
+this audit attributed CVE-2022-24999 to this row; that CVE in fact
+affects the `qs` library &lt;`6.10.3` as used by Express, not
+`moment-timezone`, and is not applicable to this Hapi-based project &mdash;
+the only `qs@0.6.5` in the dependency tree is reachable solely through
+the dev-only `supertest` &rarr; `superagent` chain and predates the 6.x
+prototype-pollution code path).
 
 #### Transitive Dependency Overrides
 
