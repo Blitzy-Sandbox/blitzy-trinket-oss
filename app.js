@@ -222,29 +222,40 @@ const init = async () => {
       const wantsHtml = acceptHeader.includes('text/html') ||
                         (!acceptHeader.includes('application/json') && !isApiRequest);
 
-      if (!isApiRequest && wantsHtml) {
-        // SECURITY: attach defense-in-depth headers to the rendered HTML error view /
-        // redirect response. This is part of the same vulnerability class addressed by
-        // AAP §0.5.1 (defense-in-depth response header gap closure for
-        // X-Content-Type-Options, Referrer-Policy, and Content-Security-Policy).
-        // Without this adapter, HTML browser-style 401/403/404/500 responses bypass the
-        // security-header injection below, because h.view().code() and
-        // h.redirect().takeover() short-circuit the function and the resulting response
-        // object does not re-enter this onPreResponse extension — leaving error pages
-        // without the AAP-mandated security headers. Adding this adapter completes the
-        // §0.5.1 mandate across all response paths, including HTML error renderings.
-        // (Pre-existing Cache-Control / Pragma / Expires / X-Frame-Options gaps on
-        // these paths are out of scope for this remediation per the Minimal Change
-        // Clause and are preserved as-is.)
-        const attachSecurity = (resp) => resp
-          .header('X-Content-Type-Options', 'nosniff')
-          .header('Referrer-Policy', 'strict-origin-when-cross-origin')
-          .header('Content-Security-Policy', csp);
+      // SECURITY: attach defense-in-depth headers to the rendered HTML error view /
+      // redirect response. This is part of the same vulnerability class addressed by
+      // AAP §0.5.1 (defense-in-depth response header gap closure for
+      // X-Content-Type-Options, Referrer-Policy, and Content-Security-Policy).
+      // Without this adapter, HTML browser-style 401/403/404/500 responses bypass the
+      // security-header injection below, because h.view().code() and
+      // h.redirect().takeover() short-circuit the function and the resulting response
+      // object does not re-enter this onPreResponse extension — leaving error pages
+      // without the AAP-mandated security headers. Adding this adapter completes the
+      // §0.5.1 mandate across all response paths, including HTML error renderings.
+      // (Pre-existing Cache-Control / Pragma / Expires / X-Frame-Options gaps on
+      // these paths are out of scope for this remediation per the Minimal Change
+      // Clause and are preserved as-is.)
+      const attachSecurity = (resp) => resp
+        .header('X-Content-Type-Options', 'nosniff')
+        .header('Referrer-Policy', 'strict-origin-when-cross-origin')
+        .header('Content-Security-Policy', csp);
 
-        if (statusCode === 401) {
-          // Redirect to login for unauthorized page requests
-          return attachSecurity(h.redirect('/login')).takeover();
-        } else if (statusCode === 404) {
+      // SECURITY: redirect 401s to /login for ALL non-explicit-JSON requests
+      // (matching the legacy Hapi 4 behaviour where the failAction on the
+      // default auth strategy redirected unauthenticated users to /login
+      // regardless of whether the request path was under /api/). Tests in
+      // test/lib/api/course.js (logged-out user describe block) exercise
+      // this contract: POST /api/courses without a session cookie is
+      // expected to redirect to /login (302), not return 401. Explicit
+      // API clients (those that send `Accept: application/json`) still
+      // receive a structured 401 — only browser-style requests are
+      // redirected.
+      if (statusCode === 401 && !acceptHeader.includes('application/json')) {
+        return attachSecurity(h.redirect('/login')).takeover();
+      }
+
+      if (!isApiRequest && wantsHtml) {
+        if (statusCode === 404) {
           return attachSecurity(h.view('404.html').code(404));
         } else if (statusCode === 403) {
           return attachSecurity(h.view('50x.html').code(403));
@@ -393,6 +404,30 @@ const init = async () => {
     log.info('Server started on port: ' + server.info.port);
 
     detectLeaks();
+  } else {
+    // SECURITY: in non-listener boot modes (e.g. NODE_ENV=test where
+    // config.app.start === false, set in config/test.yaml line 3), the HTTP
+    // listener is intentionally suppressed so suites can drive the server
+    // through `server.inject()` / supertest without binding a port. However,
+    // suppressing `server.start()` also suppresses the cache provider boot
+    // sequence — Hapi only invokes the catbox engine's `start()` lifecycle
+    // hook from inside `server.start()` (or `server.initialize()`).
+    //
+    // Without that hook, our `lib/util/catbox-mongoose.js` engine never sets
+    // its `isConnected` flag, so `engine.isReady()` returns false. The first
+    // session-touching request then trips
+    // `node_modules/@hapi/catbox/lib/client.js:103` (`if (!this.isReady())
+    // throw Boom.internal('Disconnected')`) inside `Yar.commit` (yar's
+    // onPreResponse hook), surfacing as a 500 Internal Server Error on every
+    // route that mutates the session — registration, login, logout, course
+    // CRUD, profile updates, password reset, and trinket creation.
+    //
+    // `server.initialize()` runs the same boot sequence as `server.start()`
+    // minus the listener bind. Calling it here preserves the AAP §0.1.2
+    // session architecture contract (`@hapi/yar` + `catbox-mongoose` sliding
+    // 24-hour TTL) while keeping the existing `start: false` semantics for
+    // tests and embedded boot modes (QA-FINAL-2 Issue #6 cascade).
+    await server.initialize();
   }
 
   return server;

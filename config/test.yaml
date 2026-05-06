@@ -9,3 +9,35 @@ db:
     host: localhost
     port: 27017
     database: test
+# SECURITY: Enable file/asset features in tests so the file-upload integration
+# tests (test/lib/api/files.js) can exercise the upload pipeline. The
+# uploadMaterialFile / uploadUserAvatar handlers in lib/util/file.js short-
+# circuit (return errors.notImplemented) when this flag is false. The aws.S3
+# call inside FileUtil._upload still fires against the example-bucket
+# coordinates in the default config, but the controller logs and ignores any
+# AWS error (lib/controllers/files.js:30) — so the test-mode behaviour
+# matches the open-source-release contract: file metadata is persisted in
+# Mongo and the test asserts on that. Per the AAP §0.1.2 graceful-degradation
+# contract, a failed S3 upload still returns the file metadata to the caller.
+features:
+  assets: true
+
+# Test-only alias: the User Profile integration test
+# (test/lib/api/profile.js) references `config.cloud.containers.userAvatars`
+# instead of the canonical `config.aws.buckets.useravatars`. Both keys are
+# only consumed by tests — production code (lib/util/nunjucks.js,
+# lib/controllers/files.js) only uses `aws.buckets.useravatars`. Mirroring
+# the canonical bucket structure under the legacy key here keeps the test
+# stable without modifying the test file (out of scope per AAP minimal-
+# change clause).
+#
+# The host MUST NOT include the substring "example.com" — User#normalizeAvatar
+# (lib/models/user.js:244) explicitly treats any avatar URL containing
+# "example.com" as a placeholder and rewrites it to /img/avatar-default.svg
+# during the pre('save') hook. Using a localhost-style host preserves the
+# round-trip the test asserts: PUT /api/users/{id} with avatar=<host>/franz
+# should reflect that exact URL in the response body.
+cloud:
+  containers:
+    userAvatars:
+      host: 'https://test-avatars.localhost'

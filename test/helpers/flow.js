@@ -1,10 +1,19 @@
-var _        = require('underscore'),
+// SECURITY: load `app.js` BEFORE `config/app.config` to ensure @hapi/inert
+// is required before mongoose-schema-extend → harmony-reflect monkey-patches
+// global Object.* methods (QA-FINAL-2 Issue #6).
+//
+// The harmony-reflect polyfill (a transitive dep of mongoose-schema-extend@0.2.2)
+// rebinds Object.getPrototypeOf and friends; once installed it breaks
+// @hapi/inert's Joi schema compilation in node_modules/@hapi/inert/lib/file.js:27,
+// which is evaluated at the top of inert's module body. Loading app.js first
+// guarantees inert finishes its sync init before any harmony-reflect rebinding.
+var app      = require('../../app.js'),
+    _        = require('underscore'),
     server   = require('supertest'),
     url      = require('url'),
     querystring = require('querystring'),
     defaults = require('./defaults'),
-    config   = require('../../config/app.config'),
-    app      = require('../../app.js');
+    config   = require('../../config/app.config');
 
 // public interface
 var methods = {
@@ -143,7 +152,17 @@ var methods = {
   },
 
   getCourseWithOutline : function(id, cb) {
-    return this.get('/api/courses/' + id + '?outline=yes')
+    // SECURITY: Joi 17 (the version pinned per AAP §0.4) no longer auto-coerces
+    // the legacy "yes"/"no" string variants accepted by older Joi versions.
+    // The `outline` query parameter is validated as `Joi.boolean()` in
+    // config/api_routes.js — under Joi 17 only the canonical
+    // boolean strings ("true", "false") and 0/1 are accepted. Sending
+    // "yes" produces `"outline" must be a boolean` and the controller
+    // never sees the request, so getCourseWithOutline returns no `data`
+    // and downstream test fixtures crash with `Cannot read properties of
+    // undefined (reading 'id')`. Sending "true" preserves the original
+    // intent (request the populated outline) while complying with Joi 17.
+    return this.get('/api/courses/' + id + '?outline=true')
       .end(this.setLastResponse(cb));
   },
 
@@ -416,15 +435,39 @@ function createRequest(flow, type, url) {
 }
 
 function Flow() {
-  this.agent      = server(app.listener);
+  // SECURITY: defer agent creation until the Hapi server promise resolves
+  // (QA-FINAL-2 Issue #6). app.js (post-AAP §0.5.1 refactor) exports
+  // `serverPromise` rather than the synchronous server, so `app.listener`
+  // is undefined at module-load time. The `setServer` method below is
+  // invoked from a root `before` hook in test/setup.js once the promise
+  // resolves, populating `this.agent` before any test exercises an HTTP
+  // route via supertest.
+  this.agent      = null;
   this.activeUser = 'user';
   this.cookies    = {};
 
   // bind all of the methods for ease of use in before/after
   // blocks in the test...
   // e.g. before(flow.login)
-  _.bindAll.apply(_, [this].concat(Object.keys(methods)));
+  // Use a hand-rolled bind loop instead of underscore's _.bindAll because
+  // _.bindAll @ underscore 1.13 wraps each function in a length-0 arrow
+  // (so Mocha 3 cannot detect the `done` callback). Native Function.bind
+  // preserves the source function's arity.
+  Object.keys(methods).forEach(function(name) {
+    this[name] = methods[name].bind(this);
+  }, this);
 }
+
+// SECURITY: bind the resolved Hapi server to the supertest agent.
+// Called from test/setup.js's root `before` hook once `app.js`'s
+// `serverPromise` resolves. Idempotent — repeated calls overwrite the
+// agent, which matters if the server is replaced (e.g., during a hot
+// re-init). The supertest agent simply needs `server.listener` (the
+// underlying Node http.Server), which is created synchronously inside
+// Hapi.server() before init() awaits any plugin registration.
+Flow.prototype.setServer = function(hapiServer) {
+  this.agent = server(hapiServer.listener);
+};
 
 _.extend(Flow.prototype, methods);
 
