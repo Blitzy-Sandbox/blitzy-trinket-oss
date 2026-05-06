@@ -25,6 +25,11 @@ services:
     volumes:
       - python-sessions:/tmp/sessions
     # SECURITY: hardened adversarial code-execution zone
+    # SECURITY: PM2_HOME redirected to writable tmpfs because read_only:true
+    # would otherwise prevent pm2-runtime from creating its $HOME/.pm2
+    # working directory and server.js would never start. QA finding #1.
+    environment:
+      - PM2_HOME=/tmp/.pm2
     mem_limit: 500m
     mem_reservation: 375m
     pids_limit: 50
@@ -58,6 +63,11 @@ services:
     volumes:
       - java-sessions:/tmp/sessions
     # SECURITY: hardened adversarial code-execution zone
+    # SECURITY: PM2_HOME redirected to writable tmpfs because read_only:true
+    # would otherwise prevent pm2-runtime from creating its $HOME/.pm2
+    # working directory and server.js would never start. QA finding #1.
+    environment:
+      - PM2_HOME=/tmp/.pm2
     mem_limit: 500m
     mem_reservation: 375m
     pids_limit: 50
@@ -90,6 +100,11 @@ services:
     volumes:
       - r-sessions:/tmp/sessions
     # SECURITY: hardened adversarial code-execution zone
+    # SECURITY: PM2_HOME redirected to writable tmpfs because read_only:true
+    # would otherwise prevent pm2-runtime from creating its $HOME/.pm2
+    # working directory and server.js would never start. QA finding #1.
+    environment:
+      - PM2_HOME=/tmp/.pm2
     mem_limit: 500m
     mem_reservation: 375m
     pids_limit: 50
@@ -127,10 +142,35 @@ services:
     mem_reservation: 375m
     pids_limit: 50
     read_only: true
+    # SECURITY: additional tmpfs mounts because supervisord writes its main
+    # log to /var/log/supervisor/supervisord.log and tracks its pidfile in
+    # /var/run/. With read_only:true and no writable mount at these paths,
+    # supervisord crashes on startup with "OSError: [Errno 30] Read-only
+    # file system" and the container exits within 1 second. We mount
+    # /var/log/supervisor (not /var/log) directly so the tmpfs lands on the
+    # specific directory supervisor needs without hiding the rest of /var/log.
+    # QA finding #2.
     tmpfs:
       - /tmp:size=100m
+      - /var/log/supervisor:size=50m
+      - /var/run:size=10m
     cap_drop:
       - ALL
+    # SECURITY: SETUID and SETGID are the only two Linux capabilities added
+    # back to the otherwise-stripped capability set, because supervisord runs
+    # as root inside this container (Dockerfile has no USER directive) and
+    # then immediately drops privileges to the unprivileged `trinket` user
+    # via the `user=trinket` directive in xvnc.conf and shell.conf. Without
+    # these two capabilities, supervisor fails with "couldn't setuid to 1000:
+    # Could not set groups of effective user", child processes never spawn,
+    # and AAP completion criterion #16 ("Adversarial-zone containers still
+    # execute learner code correctly") fails for pygame. NoNewPrivs:true is
+    # preserved, so these capabilities cannot be used to ESCALATE privileges
+    # — only to drop them, which is exactly what supervisor needs to do.
+    # QA finding #2 (full resolution).
+    cap_add:
+      - SETUID
+      - SETGID
     security_opt:
       - "no-new-privileges:true"
 
