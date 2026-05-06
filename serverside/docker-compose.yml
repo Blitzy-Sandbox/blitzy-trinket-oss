@@ -24,15 +24,17 @@ services:
       - "8010"
     volumes:
       - python-sessions:/tmp/sessions
-    # Production security options (uncomment for hardened deployment):
-    # mem_limit: 500m
-    # mem_reservation: 375m
-    # cpus: 1.0
-    # cpu_shares: 512
-    # pids_limit: 50
-    # read_only: true
-    # tmpfs:
-    #   - /tmp:size=100m
+    # SECURITY: hardened adversarial code-execution zone
+    mem_limit: 500m
+    mem_reservation: 375m
+    pids_limit: 50
+    read_only: true
+    tmpfs:
+      - /tmp:size=100m
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
 
   python3-manager:
     build: ./python/manager
@@ -55,12 +57,17 @@ services:
       - "8010"
     volumes:
       - java-sessions:/tmp/sessions
-    # Production security options (uncomment for hardened deployment):
-    # mem_limit: 500m
-    # mem_reservation: 375m
-    # cpus: 1.0
-    # cpu_shares: 512
-    # pids_limit: 50
+    # SECURITY: hardened adversarial code-execution zone
+    mem_limit: 500m
+    mem_reservation: 375m
+    pids_limit: 50
+    read_only: true
+    tmpfs:
+      - /tmp:size=100m
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
 
   java-manager:
     build: ./java/manager
@@ -82,12 +89,17 @@ services:
       - "8010"
     volumes:
       - r-sessions:/tmp/sessions
-    # Production security options (uncomment for hardened deployment):
-    # mem_limit: 500m
-    # mem_reservation: 375m
-    # cpus: 1.0
-    # cpu_shares: 512
-    # pids_limit: 50
+    # SECURITY: hardened adversarial code-execution zone
+    mem_limit: 500m
+    mem_reservation: 375m
+    pids_limit: 50
+    read_only: true
+    tmpfs:
+      - /tmp:size=100m
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
 
   r-manager:
     build: ./r/manager
@@ -110,10 +122,17 @@ services:
       - "6080"   # noVNC WebSocket
     volumes:
       - pygame-sessions:/tmp/pygame
-    # Production security options (uncomment for hardened deployment):
-    # mem_limit: 1g
-    # mem_reservation: 750m
-    # cpus: 2.0
+    # SECURITY: hardened adversarial code-execution zone
+    mem_limit: 500m
+    mem_reservation: 375m
+    pids_limit: 50
+    read_only: true
+    tmpfs:
+      - /tmp:size=100m
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
 
   pygame-manager:
     build: ./pygame/manager
