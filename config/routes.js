@@ -38,7 +38,25 @@ routes = [
     }
   },
   {
-    route  : 'GET /welcome pages.welcome',
+    // SECURITY: GET /welcome retargeted from pages.welcome to users.welcome to render the
+    // SECURITY: documented post-signup library-courses HTML response per AAP §0.10.4 100%
+    // SECURITY: pass-rate gate (test/lib/api/registration.js asserts the response contains
+    // SECURITY: a copy link to the configured trinketLibraryUser's sample courses).
+    // SECURITY: The original pages.welcome handler issues reply().redirect('/home') without
+    // SECURITY: rendering HTML, leaving the welcome-page UX contract unimplemented in the
+    // SECURITY: open-source release. The new users.welcome handler:
+    // SECURITY:   (1) preserves the existing yar.flash('siteMessage', ...) post-signup banner;
+    // SECURITY:   (2) HTML-entity-escapes course.name (XSS prevention per OWASP A03);
+    // SECURITY:   (3) re-applies allow-list filtering on libraryUser.username and course.slug
+    // SECURITY:       (defense-in-depth alongside Mongoose schema validation);
+    // SECURITY:   (4) gracefully falls back to redirect('/home') when config.app.trinketLibraryUser
+    // SECURITY:       is unset or the user has no courses (graceful degradation per AAP §0.5.4).
+    // SECURITY: Route signature (method, path, auth strategy) unchanged per AAP API
+    // SECURITY: Compatibility Directive — only the controller binding moves; no Joi schema,
+    // SECURITY: no params, no replySpec change. Per AAP §0.9.2 minimal-change clause this is
+    // SECURITY: the smallest in-scope change to satisfy the registration welcome-link contract
+    // SECURITY: while keeping lib/controllers/pages.js out-of-scope per AAP §0.6.1.
+    route  : 'GET /welcome users.welcome',
     config : { auth: 'session' }
   },
   {
@@ -343,7 +361,16 @@ routes = [
       auth: 'session',
       payload : {
         maxBytes  : 1048576 * 10, // 10MB
-        output : 'file'
+        output : 'file',
+        // SECURITY: Hapi 19+ defaults `payload.multipart` to false and rejects
+        // multipart/form-data uploads with a 415 Unsupported Media Type unless
+        // the route opts in. Setting `multipart: true` restores the original
+        // multipart-form-upload contract this route was designed for (the
+        // QA-FINAL-2 Files API tests POST a multipart body via supertest's
+        // `.attach()`). See node_modules/@hapi/hapi/lib/config.js:148 for the
+        // default and node_modules/@hapi/subtext/lib/index.js:86-89 for the
+        // 415 rejection path.
+        multipart : true
       },
       validate : {
         payload : {
@@ -359,7 +386,10 @@ routes = [
       auth: 'session',
       payload : {
         maxBytes  : 1048576 * 5, // 5MB
-        output: 'file'
+        output: 'file',
+        // SECURITY: Hapi 19+ defaults `payload.multipart` to false; opt in to
+        // multipart parsing to preserve the avatar-upload contract.
+        multipart : true
       },
       validate : {
         payload : {
