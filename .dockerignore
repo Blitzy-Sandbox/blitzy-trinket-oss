@@ -1,1 +1,74 @@
+# SECURITY: prevent secrets and operator-supplied configuration from being
+# baked into image layers. The Dockerfile uses `COPY . /usr/local/node/trinket`,
+# which copies the entire repository unless filtered here. Without these
+# exclusions, an operator who builds the image with a real `config/local.yaml`
+# (containing the session cookie password and other secrets) would leak those
+# secrets into image layers, recoverable via `docker history` or by anyone
+# who pulls the image. QA finding #7.
+
+# Source-control metadata
 **/.git
+**/.gitignore
+
+# SECURITY: local / environment-specific configuration that contains secrets
+# (session cookie password, JWT signing keys, OAuth client secrets, SMTP
+# credentials, etc.). The image must rely on operator-supplied configuration
+# at runtime via volume mounts or environment variables, never via files
+# baked into the image.
+config/local.yaml
+config/local.yml
+config/local.json
+config/development.yaml
+config/development.yml
+config/development.json
+config/production.yaml
+config/production.yml
+config/production.json
+config/runtime.json
+config/runtime.json.tmp-*
+config/migration.json
+config/migrationDb.json
+
+# Installed dependencies (the Dockerfile runs `npm install` and downloads
+# `public-components.tgz` inside the image, so these would be overwritten
+# anyway; excluding speeds up the build context transfer).
+node_modules
+**/node_modules
+public/components
+public/vendor
+
+# Generated migration backups (operator data, not part of image)
+lib/migrations/backups
+
+# IDE / editor metadata
+*.sublime-project
+*.sublime-workspace
+.idea
+.vscode
+*.swp
+
+# Vagrant
+Vagrantfile
+.vagrant
+
+# Logs and debug
+npm-debug.log
+build.log
+test-*.js
+
+# OS metadata
+*.DS_Store
+
+# Compiled Python
+*.pyc
+
+# Blitzy / agent working directory (build artifacts, screenshots, reports)
+blitzy
+
+# Test ad-hoc files
+blitzy_adhoc_test_*
+
+# SCSS source maps and cache (CSS files in public/css/ are kept — they are
+# built locally by `npm run build` and must be present in the image because
+# the Dockerfile does not run the SCSS build step)
+.sass-cache
