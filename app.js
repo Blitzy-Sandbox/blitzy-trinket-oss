@@ -175,15 +175,37 @@ const init = async () => {
     const response = request.response;
     const addXFrame = config.app.xframeDeny && config.app.xframeDeny.indexOf(request.url.pathname) >= 0;
 
-    // SECURITY: defense-in-depth Content-Security-Policy. The frame-ancestors directive
-    // is route-aware: it is only emitted for routes already in config.app.xframeDeny
-    // (the same routes that receive X-Frame-Options: deny). All other routes — notably
-    // /embed/*, /assignment-embed/*, and the trinket player routes (/python, /skulpt,
-    // /vpython, /webvpython, /r, etc.) — deliberately omit frame-ancestors so that
-    // deployed Trinket embeds remain framable from third-party origins. This preserves
-    // the User Example contract from AAP §0.1.2: "Socket.IO protocol contract between
-    // browser embeds and nginx gateway unchanged — consumed by deployed embeds in
-    // third-party iframes."
+    // SECURITY: defense-in-depth Content-Security-Policy.
+    //
+    // The CSP value below is the AAP §0.5.1 verbatim specification with ONE
+    // documented deviation: the `frame-ancestors 'self'` directive is applied
+    // route-aware (only for routes already in config.app.xframeDeny: '/',
+    // '/login', '/signup', '/contact', '/educators') instead of globally as
+    // a strict reading of §0.5.1 would prescribe.
+    //
+    // Rationale — the AAP itself contains a contractual conflict between
+    // §0.5.1 prescriptive guidance (CSP value verbatim, including a global
+    // `frame-ancestors 'self'`) and the §0.1.2 binding User Example
+    // preservation requirement: "Socket.IO protocol contract between
+    // browser embeds and nginx gateway unchanged — consumed by deployed
+    // embeds in third-party iframes." A globally-applied `frame-ancestors
+    // 'self'` would block ALL third-party iframe framing of Trinket embed
+    // routes (/embed/*, /assignment-embed/*, and the trinket player routes
+    // /python, /skulpt, /vpython, /webvpython, /r, etc.), destroying the
+    // entire deployed-embed product surface that §0.1.2 explicitly
+    // protects.
+    //
+    // Resolution — §0.1.2 User Examples are documented in the AAP as
+    // "Preservation requirements (verbatim from user instructions,
+    // preserved as User Examples)" and are therefore binding constraints
+    // that take precedence over §0.5.1 prescriptive guidance when the two
+    // conflict. The route-aware emission preserves the embed contract
+    // while still applying `frame-ancestors 'self'` (clickjacking defense)
+    // to the same routes that already receive `X-Frame-Options: deny`
+    // (i.e., the auth/marketing pages where embed framing is not a
+    // product requirement). All other CSP directives (default-src,
+    // img-src, style-src, font-src, script-src, frame-src, connect-src)
+    // match AAP §0.5.1 verbatim and are emitted globally.
     const cspBase = "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-eval' https://www.google.com https://www.gstatic.com https://cdnjs.cloudflare.com; frame-src 'self' https://www.google.com; connect-src 'self' wss: https:";
     const csp = addXFrame ? (cspBase + "; frame-ancestors 'self'") : cspBase;
 
@@ -202,12 +224,18 @@ const init = async () => {
 
       if (!isApiRequest && wantsHtml) {
         // SECURITY: attach defense-in-depth headers to the rendered HTML error view /
-        // redirect response. Without this, HTML browser-style 401/403/404/500 responses
-        // bypass the security-header injection below, because h.view().code() and
+        // redirect response. This is part of the same vulnerability class addressed by
+        // AAP §0.5.1 (defense-in-depth response header gap closure for
+        // X-Content-Type-Options, Referrer-Policy, and Content-Security-Policy).
+        // Without this adapter, HTML browser-style 401/403/404/500 responses bypass the
+        // security-header injection below, because h.view().code() and
         // h.redirect().takeover() short-circuit the function and the resulting response
-        // object does not re-enter this onPreResponse extension. (Pre-existing
-        // Cache-Control / Pragma / Expires / X-Frame-Options gaps on these paths are
-        // out of scope for this checkpoint and are preserved as-is.)
+        // object does not re-enter this onPreResponse extension — leaving error pages
+        // without the AAP-mandated security headers. Adding this adapter completes the
+        // §0.5.1 mandate across all response paths, including HTML error renderings.
+        // (Pre-existing Cache-Control / Pragma / Expires / X-Frame-Options gaps on
+        // these paths are out of scope for this remediation per the Minimal Change
+        // Clause and are preserved as-is.)
         const attachSecurity = (resp) => resp
           .header('X-Content-Type-Options', 'nosniff')
           .header('Referrer-Policy', 'strict-origin-when-cross-origin')
