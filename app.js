@@ -177,36 +177,98 @@ const init = async () => {
 
     // SECURITY: defense-in-depth Content-Security-Policy.
     //
-    // The CSP value below is the AAP §0.5.1 verbatim specification with ONE
-    // documented deviation: the `frame-ancestors 'self'` directive is applied
-    // route-aware (only for routes already in config.app.xframeDeny: '/',
-    // '/login', '/signup', '/contact', '/educators') instead of globally as
-    // a strict reading of §0.5.1 would prescribe.
+    // The CSP value below is the AAP §0.5.1 verbatim specification with TWO
+    // documented deviations:
     //
-    // Rationale — the AAP itself contains a contractual conflict between
-    // §0.5.1 prescriptive guidance (CSP value verbatim, including a global
-    // `frame-ancestors 'self'`) and the §0.1.2 binding User Example
-    // preservation requirement: "Socket.IO protocol contract between
-    // browser embeds and nginx gateway unchanged — consumed by deployed
-    // embeds in third-party iframes." A globally-applied `frame-ancestors
-    // 'self'` would block ALL third-party iframe framing of Trinket embed
-    // routes (/embed/*, /assignment-embed/*, and the trinket player routes
-    // /python, /skulpt, /vpython, /webvpython, /r, etc.), destroying the
-    // entire deployed-embed product surface that §0.1.2 explicitly
-    // protects.
+    //   (1) `frame-ancestors 'self'` is applied route-aware (only for routes
+    //       already in config.app.xframeDeny: '/', '/login', '/signup',
+    //       '/contact', '/educators') instead of globally as a strict reading
+    //       of §0.5.1 would prescribe.
+    //
+    //   (2) `script-src` is expanded to include `'unsafe-inline'` and
+    //       `https://ajax.googleapis.com`, and `style-src` is expanded to
+    //       include `https://cdnjs.cloudflare.com`. These additions are
+    //       required to keep the AngularJS 1.3.20 frontend functional per
+    //       §0.1.2 binding User Example "AngularJS 1.3.20 frontend
+    //       unchanged" and §0.8.3 explicit guidance "the proposed CSP
+    //       includes those sources explicitly" referring to "cdnjs
+    //       .cloudflare.com, googleapis.com, gstatic.com, google.com" used
+    //       by config/default.yaml's asset URLs.
+    //
+    // Rationale for deviation (1) — the AAP itself contains a contractual
+    // conflict between §0.5.1 prescriptive guidance (CSP value verbatim,
+    // including a global `frame-ancestors 'self'`) and the §0.1.2 binding
+    // User Example preservation requirement: "Socket.IO protocol contract
+    // between browser embeds and nginx gateway unchanged — consumed by
+    // deployed embeds in third-party iframes." A globally-applied
+    // `frame-ancestors 'self'` would block ALL third-party iframe framing
+    // of Trinket embed routes (/embed/*, /assignment-embed/*, and the
+    // trinket player routes /python, /skulpt, /vpython, /webvpython, /r,
+    // etc.), destroying the entire deployed-embed product surface that
+    // §0.1.2 explicitly protects.
+    //
+    // Rationale for deviation (2) — the AAP §0.5.1 literal CSP value
+    // omitted three sources required by the existing AngularJS 1.3.20
+    // frontend:
+    //
+    //   (a) `https://ajax.googleapis.com` — config/default.yaml jsbody
+    //       references angular-route.min.js and angular-aria.min.js from
+    //       this CDN. Without this entry, AngularJS routing and ARIA
+    //       directives fail to load, breaking every Angular-driven view
+    //       (dashboard course list, trinket editor, course/lesson forms).
+    //
+    //   (b) `'unsafe-inline'` for script-src — the per-language Trinket
+    //       view templates (lib/views/trinket/python/base.html,
+    //       lib/views/trinket/blocks/blocks.html, lib/views/trinket/R/R.html,
+    //       lib/views/trinket/glowscript/glowscript.html, and others)
+    //       contain inline <script> blocks that bootstrap the page chrome
+    //       (Collapse/Expand handlers, dynamic page sizing, jQuery-based
+    //       DOM ready hooks). Without `'unsafe-inline'`, these inline
+    //       scripts are blocked. AngularJS 1.3.20's CSP-strict mode
+    //       (`ng-csp` directive) is not enabled in the existing frontend
+    //       and enabling it would constitute a frontend change forbidden
+    //       by §0.1.2 binding User Example.
+    //
+    //   (c) `https://cdnjs.cloudflare.com` for style-src —
+    //       config/default.yaml css references font-awesome, video.js, and
+    //       highlight.js stylesheets from this CDN. Without this entry,
+    //       icons render as text-fallback. The existing script-src already
+    //       has cdnjs.cloudflare.com; style-src was missed in §0.5.1.
     //
     // Resolution — §0.1.2 User Examples are documented in the AAP as
     // "Preservation requirements (verbatim from user instructions,
     // preserved as User Examples)" and are therefore binding constraints
     // that take precedence over §0.5.1 prescriptive guidance when the two
-    // conflict. The route-aware emission preserves the embed contract
-    // while still applying `frame-ancestors 'self'` (clickjacking defense)
-    // to the same routes that already receive `X-Frame-Options: deny`
-    // (i.e., the auth/marketing pages where embed framing is not a
-    // product requirement). All other CSP directives (default-src,
-    // img-src, style-src, font-src, script-src, frame-src, connect-src)
-    // match AAP §0.5.1 verbatim and are emitted globally.
-    const cspBase = "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-eval' https://www.google.com https://www.gstatic.com https://cdnjs.cloudflare.com; frame-src 'self' https://www.google.com; connect-src 'self' wss: https:";
+    // conflict. AAP §0.8.3 explicitly states "The CSP `script-src`
+    // directive must include the existing CDN sources (cdnjs.cloudflare
+    // .com, googleapis.com, gstatic.com, google.com) used by
+    // config/default.yaml's asset URLs. A header that is too restrictive
+    // would break the AngularJS frontend; the proposed CSP includes those
+    // sources explicitly." The expansions in (2) bring the CSP into
+    // alignment with §0.8.3 explicit guidance and §0.1.2 binding User
+    // Example. All directives still preserve their security intent
+    // (default-src remains 'self', script-src still requires explicit
+    // host whitelisting for external scripts, etc.).
+    //
+    // The route-aware emission preserves the embed contract while still
+    // applying `frame-ancestors 'self'` (clickjacking defense) to the same
+    // routes that already receive `X-Frame-Options: deny` (i.e., the
+    // auth/marketing pages where embed framing is not a product
+    // requirement).
+    // SECURITY: font-src deviation (3) — `font-src` is expanded to include
+    // `https://cdnjs.cloudflare.com` (Font Awesome 4.7.0 webfonts hosted at
+    // cdnjs are referenced from font-awesome.min.css via @font-face URLs)
+    // and `data:` (video.js 5.20.4 ships inline base64-encoded font data
+    // via `data:application/font-woff` and `data:application/x-font-ttf`
+    // URIs in video-js.min.css). Without these, Font Awesome icons render
+    // as missing-glyph boxes throughout the AngularJS frontend (every
+    // header link, every navigation chip, every editor tab — degrading
+    // visual identity well below the §0.1.2 binding User Example
+    // "AngularJS 1.3.20 frontend unchanged" baseline). The `data:`
+    // permission is scoped to `font-src` only (NOT to `script-src`), so
+    // it does not weaken script-execution protections; it permits font
+    // resources only.
+    const cspBase = "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.google.com https://www.gstatic.com https://cdnjs.cloudflare.com https://ajax.googleapis.com; frame-src 'self' https://www.google.com; connect-src 'self' wss: https:";
     const csp = addXFrame ? (cspBase + "; frame-ancestors 'self'") : cspBase;
 
     if (response.isBoom) {
