@@ -51,7 +51,7 @@
     "nunjucks": "^3.2.4",
     "optimist": "~0.6.0",
     "passport": "^0.7.0",
-    "passport-google-oauth": "^0.1.5",
+    "passport-google-oauth": "^2.0.0",
     "passport-local": "~1.0.0",
     "passport-strategy": "~1.0.0",
     "q": "~1.0.0",
