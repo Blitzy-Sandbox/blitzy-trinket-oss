@@ -70,6 +70,7 @@ annotation in the source code. Reviewers can locate each annotation via the
 | CVE-2020-7769  | `nodemailer`               | `^2.5.0`             | `^8.0.7` (see post-AAP fixes below)     | A06   | CWE-77   | (library upgrade)          |
 | CVE-2015-8851  | `node-uuid` &rarr; `uuid`  | `node-uuid@^1.4.3`   | replaced with `uuid@^9.0.1`             | A02   | CWE-330  | `lib/controllers/users.js` |
 | CWE-1104       | `node:16-bullseye` runtime | `node:16-bullseye`   | `node:20-bookworm-slim`                 | A06   | CWE-1104 | `Dockerfile`               |
+| GHSA-x5pg-88wf-qq4p, GHSA-rrrm-qjm4-v8hf, GHSA-5v2h-r2cx-5xgj, GHSA-hjcp-j389-59ff | `marked` (Trinket fork &rarr; upstream + sanitize-html) | `git+https://github.com/trinketapp/marked.git` (extended marked@0.3.2) | replaced with `marked@^4.3.0` + `sanitize-html@^2.13.0` | A06 | CWE-1333 | `lib/shared/trinket-markdown.js` |
 
 #### Post-AAP Critical / High Advisories (resolved during code review remediation)
 
@@ -174,28 +175,75 @@ alongside the dependency upgrades.
   characters; it does not hard-exit, so the SMTP-absent graceful-degradation
   contract for non-email-using deployments is preserved.
 
-## Accepted Operator Risk (Explicit Acceptance)
+### Migration Notes
 
-The findings below are flagged at **High** severity by `npm audit` but cannot
-be remediated within the scope of the current audit without violating the AAP
-minimal-change clause and breaking a runtime-critical security control. They
-are therefore documented here as **explicit operator-accepted risk**, with
-the compensating controls and the path to future remediation enumerated. This
-section supersedes any earlier "soft-fail" interpretation of the
-`npm audit --omit=dev --audit-level=high` gate at the repository root: the
-gate may legitimately surface these accepted-risk findings, and reviewers
-should cross-reference this section to confirm that no NEW (un-accepted)
-High/Critical advisory has appeared.
+#### `marked` Trinket fork &rarr; upstream `marked@^4.3.0` + `sanitize-html@^2.13.0`
 
-| ID   | Finding                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | npm-audit Severity | Why Not Remediated In This Pass                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Compensating Controls                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Recommended Future Action                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| A-01 | Custom `marked` Trinket fork at `git+https://github.com/trinketapp/marked.git`. `npm audit` reports four ReDoS / Inefficient-Regex advisories whose patched-version ranges all require **`marked >= 4.0.10`**: GHSA-x5pg-88wf-qq4p (CVSS 7.5), GHSA-rrrm-qjm4-v8hf (CVSS 7.5), GHSA-5v2h-r2cx-5xgj (CVSS 7.5), GHSA-hjcp-j389-59ff (CVSS 7.5), plus pre-fork advisories GHSA-cfjh-p3g4-3q2f, GHSA-7px7-7xjx-hxm8, GHSA-vfvf-mqq8-rwqc, GHSA-p9wx-2529-fp83. The Trinket fork is based on upstream `marked@0.3.2` plus Trinket-specific extensions and CANNOT be upgraded to upstream `marked@>=4.0.10` without a substantial refactor — see "Why Not Remediated" column.                                                                                                       | High               | The Trinket fork extends `marked@0.3.2` with a `sanitize: function(html) { ... }` callback option that is **specific to the fork**: upstream `marked` only accepted a Boolean `sanitize` flag in 0.3.x and **removed the `sanitize` option entirely in `marked@1.0.0`**. The fork-only callback drives the application's HTML allow-listing for embedded markdown (whitelisted tags, sanitized iframes via `lib/shared/trinket-markdown.js:211-256`), which is a runtime-critical security control. Replacing the fork with upstream `marked@>=4.0.10` therefore requires (1) re-implementing the entire HTML sanitization pipeline against an external sanitizer (e.g. DOMPurify or sanitize-html), (2) reproducing the fork's tag/attribute allow-list semantics outside marked, and (3) re-validating against the extensive iframe / embed integration surface. That cross-cutting refactor exceeds the current audit's binding minimal-change clause and is explicitly held out as future work pending operator authorization. | (i) The advisories are all ReDoS / Inefficient-Regex against attacker-supplied markdown. Trinket's markdown surface is reached only through authenticated authoring paths (course / lesson content, trinket descriptions) that already require login; anonymous markdown rendering is not exposed. (ii) Rendered markdown is delivered inside iframes that are sandboxed **without** `allow-same-origin`, so any payload that did manage to inflate parser CPU is contained at the iframe boundary. (iii) Hapi's request-level timeouts and the `read_only` filesystem on the adversarial Code Execution Zone limit per-request resource usage. (iv) `npm audit` runs at the supply-chain gate, not at runtime; no parser change is silently introduced. The combination of authenticated input, iframe sandboxing, request timeouts, and the fork's existing tag allow-list reduces the practical exploitability of the four ReDoS advisories. | Plan a separate, explicitly-authorized remediation sprint that (1) audits the Trinket-specific fork extensions in `lib/shared/trinket-markdown.js` (custom `sanitize` callback, custom code/image/link/listitem renderers, embed-URL rewriting), (2) ports those extensions to either upstream `marked@>=4.0.10` (via the `marked.use({extensions: ...})` API and an external sanitizer such as DOMPurify) or a maintained alternative parser, and (3) re-validates against the full markdown rendering test surface. Operators of self-hosted deployments who do not require the Trinket-specific extensions may choose to override the dependency to upstream `marked@^4` immediately, accepting the loss of fork-specific behavior; that path is explicitly **not** part of this audit's scope. **Until the migration lands, operators consuming this codebase should treat the four `marked` HIGH advisories as acknowledged operator risk and ensure the iframe-sandbox + authenticated-authoring compensating controls described above remain in place.** |
+The custom Trinket fork (`git+https://github.com/trinketapp/marked.git`, an
+extended `marked@0.3.2`) was migrated to upstream `marked@^4.3.0` with a
+post-processing `sanitize-html@^2.13.0` pass. The migration eliminated the
+four HIGH advisories (GHSA-x5pg-88wf-qq4p, GHSA-rrrm-qjm4-v8hf,
+GHSA-5v2h-r2cx-5xgj, GHSA-hjcp-j389-59ff) previously documented under A-01.
 
-The `npm audit --omit=dev --audit-level=high` gate may continue to surface
-A-01 (the four `marked` advisories) until the Trinket fork is migrated.
-Reviewers MUST verify that **only** the four `marked`-source advisories
-appear in the gate output; any other High/Critical finding indicates a
-regression and MUST be remediated before release.
+The fork extended `marked` with a `sanitize: function(html) { ... }` callback
+option that ran on user-supplied raw HTML inline tokens during parsing.
+Upstream `marked` removed the `sanitize` option entirely in `marked@1.0.0`,
+so the fork's sanitization had to be reproduced as a separate post-processing
+step. The new pipeline preserves the fork's HTML allow-list, the per-attribute
+regex enforcement (notably the `style` attribute's `expression` /
+`javascript:` / `-moz-binding` rejection), and the iframe-src URL pattern
+allow-list — but with the following operator-visible deviations:
+
+1. **Sanitization scope.** The fork's `sanitize` callback ran ONLY on
+   user-supplied raw HTML inline tokens; `marked` renderer outputs (e.g.
+   markdown `![alt](url)` &rarr; `<img>`, `**bold**` &rarr; `<strong>`)
+   bypassed sanitization completely. The new `sanitize-html` post-processing
+   step runs on the FULL rendered HTML, so renderer outputs are now subject
+   to the same allow-list. The allow-list has been widened accordingly to
+   admit tags emitted by `marked`'s default renderer (`em`, `br`, `input`)
+   and the renderer-emitted attributes on `<img>` (`alt`, `title`, `width`,
+   `height`, `style`) and `<iframe>` (`class` for `embedded-trinket`).
+2. **`<img>` src scheme.** The fork's `HTML_WHITELIST.img.src` regex
+   restricted user-typed `<img>` to `docs.google.com/.../drawings/`. The new
+   configuration accepts `http`, `https`, and `data` URIs for `<img>` src so
+   that markdown `![alt](url)` syntax continues to render with arbitrary
+   user-supplied image URLs (which the renderer path always emitted untouched
+   in the fork). Modern browsers do not execute scripts via `<img>` src, and
+   the project's CSP `img-src 'self' data: https:;` directive provides a
+   runtime defense-in-depth boundary.
+3. **`<iframe>` src URL pattern allow-list.** The fork's
+   `HTML_WHITELIST.iframe.src` regex array is reproduced verbatim in the new
+   `IFRAME_SRC_PATTERNS` constant in `lib/shared/trinket-markdown.js`,
+   enforced via `sanitize-html`'s `exclusiveFilter`. One pattern was widened:
+   the plotly URL pattern accepts both `~user/<id>.embed` (the fork's
+   original regex) AND `~user/<id>/.embed` (the format the renderer actually
+   emits — the fork's renderer output bypassed sanitize so this URL shape
+   was never tested against the regex). All other patterns are unchanged
+   from the fork.
+4. **Plotly / viewerjs renderer URL coverage.** Two URL patterns were added
+   to `IFRAME_SRC_PATTERNS` to admit renderer-emitted iframes whose `src`
+   was previously implicit (because the fork's renderer-output bypassed
+   sanitization): the `/components/viewerjs/` path on Trinket hosts (emitted
+   by `EMBED_URLS[2]` for markdown links/images starting with
+   `/components/viewerjs/index.html#`), and the corrected plotly pattern
+   above. No new domains are admitted; only renderer-emitted URLs that the
+   fork already produced.
+5. **Renderer registration.** The fork mutated `marked.Renderer.prototype.<method>`
+   inside the exported function (per-call mutation). The new module registers
+   the same renderers ONCE at module load via `marked.use({ renderer: { ... } })`.
+   This is functionally equivalent for callers that consume the parser
+   instance (the only caller is `lib/controllers/courses.js:13`).
+6. **`marked.parse(src)` API change.** `marked@4` is no longer directly
+   callable; the parser is invoked via `marked.parse(src)` instead of
+   `marked(src)`. This change is internal to `lib/shared/trinket-markdown.js`
+   and is not visible to callers.
+
+Reviewers can cross-reference the new pipeline against the pre-remediation
+fork by inspecting the inline `// SECURITY:` annotations in
+`lib/shared/trinket-markdown.js`, which cite the relevant pre-remediation
+line ranges (e.g. `lib/shared/trinket-markdown.js:211-256` for the
+`marked.setOptions({sanitize: ...})` callback the new `SANITIZE_OPTIONS`
+configuration replaces).
 
 ## Residual-Risk Register
 
@@ -207,7 +255,7 @@ responsibilities. Each row carries a recommended future action.
 | ID   | Finding                                                                                                                                | Severity   | Scope Reason                                                  | Recommended Future Action                                                                                                  |
 | ---- | -------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | R-01 | AngularJS 1.3.20 EOL frontend in `public/`                                                                                             | Medium     | Out of scope per user instructions                            | Plan migration to a maintained framework. Interim mitigation: iframe sandbox **without** `allow-same-origin` is preserved. |
-| R-02 | Custom `marked` Trinket fork at `git+https://github.com/trinketapp/marked.git` &mdash; **escalated to A-01 in the Accepted Operator Risk section above**; this row is preserved as a back-reference                                                              | High       | See A-01 above for full operator risk acceptance              | See A-01 above for the migration path.                                                                                     |
+| R-02 | Custom `marked` Trinket fork at `git+https://github.com/trinketapp/marked.git` &mdash; **REMEDIATED in this audit pass: replaced with `marked@^4.3.0` + `sanitize-html@^2.13.0`**. See "Remediated Vulnerabilities" table and "Migration Notes" subsection above. This row is retained as a back-reference for prior audit history.                                                              | Resolved   | Migrated to upstream marked + sanitize-html post-processing   | See `lib/shared/trinket-markdown.js` for the new pipeline.                                                                 |
 | R-03 | `node-cryptojs-aes@^0.4.0` unmaintained                                                                                                | Medium     | Documented; non-exploitable in current usage in `lib/util/roles.js` | Replace with built-in `crypto` AES-GCM in a future sprint.                                                                 |
 | R-04 | Dev-dependency staleness (`mocha@^3.4.1`, `chai@^3.5.0`, `sinon@~1.7.3`, `should@~3.0.0`, `supertest@~0.8.3`)                           | Low        | Internal-only; deferred                                       | Upgrade dev dependencies in a follow-up PR. Not part of the `npm audit --omit=dev` gate because they are test-runner only. |
 | R-05 | `mongoose-schema-extend@~0.2.2` deprecated                                                                                             | Low        | Out of scope per minimal-change clause                        | Replace with native Mongoose discriminators.                                                                               |
@@ -268,18 +316,17 @@ The remediation is gated on the following acceptance criteria, which must
 all be satisfied before the change set is released. These gates are quoted
 from the audit instructions and are binding.
 
-- **Dependency audit**: Zero **un-accepted** Critical/High CVEs across all
-  manifests. Run `npm audit --omit=dev --audit-level=high` at the repository
-  root and inside every `serverside/*/manager/`,
-  `serverside/*/shell/trinket/`, and `serverside/pygame/worker/trinket/`
-  package directory. Reviewers MUST cross-reference any remaining gate
-  output against the **Accepted Operator Risk** section above (the four
-  `marked` ReDoS advisories grouped under A-01 are the **only** High-severity
-  findings that may legitimately appear in the root audit). Any other
-  Critical/High finding — including any new `marked` advisory not listed
-  under A-01 — represents a regression and MUST be remediated before
-  release. The serverside tree audits MUST report zero Critical/High
-  findings (no exceptions).
+- **Dependency audit**: Zero Critical/High CVEs across all manifests. Run
+  `npm audit --omit=dev --audit-level=high` at the repository root and
+  inside every `serverside/*/manager/`, `serverside/*/shell/trinket/`, and
+  `serverside/pygame/worker/trinket/` package directory. Following the
+  `marked` Trinket-fork migration in this audit pass (see "Remediated
+  Vulnerabilities" and "Migration Notes" above), no documented residual
+  HIGH-severity findings remain at the repository root, and the
+  test/security/test_dependency_audit.js EXEMPT_PACKAGES list is empty.
+  Any Critical/High finding represents a regression and MUST be remediated
+  before release. The serverside tree audits MUST also report zero
+  Critical/High findings (no exceptions).
 - **Code audit**: Zero Critical/High findings.
 - **Secrets scan**: Zero hardcoded credentials.
 - **Existing test suite**: 100% pass rate (`CI=true npm test`).

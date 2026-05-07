@@ -18,24 +18,15 @@ describe('Security: Dependency Audit', function() {
   // but bounded ceiling that protects against pathological cases.
   this.timeout(60000);
 
-  // SECURITY: Documented residual-risk exemption per AAP §0.10.5 R-02.
-  // The `marked` package is pinned in package.json:140 to the custom Trinket
-  // fork at `git+https://github.com/trinketapp/marked.git`. The AAP §0.4.1
-  // explicitly defers this fork to the residual-risk register: "no Critical/
-  // High CVE has been demonstrated against the forked code." Per AAP §0.9.2,
-  // refactoring or replacing this fork is out of scope for the security
-  // remediation; it would require an independent CVE assessment of the
-  // forked code against upstream `marked@^14`.
-  //
-  // npm audit reports HIGH severity findings against the `marked` package
-  // because it cross-references our pinned commit's parent against the
-  // GHSA database — but those CVEs may not apply to the forked code at all
-  // (the fork's diff vs upstream is non-trivial). Filtering `marked` from
-  // the gate's HIGH count is the documented, AAP-sanctioned posture; the
-  // exemption is intentionally narrow (only this single package, only at
-  // this single audit gate) and is part of the operator-facing residual
-  // risk register documented in SECURITY.md.
-  var EXEMPT_PACKAGES = ['marked'];
+  // SECURITY: The previous Trinket `marked` fork at
+  // `git+https://github.com/trinketapp/marked.git` (formerly listed as A-01
+  // in SECURITY.md "Accepted Operator Risk") has been migrated to upstream
+  // `marked@^4.3.0` + `sanitize-html@^2.13.0` (see lib/shared/trinket-markdown.js
+  // and SECURITY.md "Remediated Vulnerabilities"). The four `marked` HIGH
+  // advisories — GHSA-x5pg-88wf-qq4p, GHSA-rrrm-qjm4-v8hf, GHSA-5v2h-r2cx-5xgj,
+  // GHSA-hjcp-j389-59ff — are eliminated by the migration; no documented
+  // residual-risk exemption is required at this audit gate.
+  var EXEMPT_PACKAGES = [];
 
   // -------------------------------------------------------------------------
   // Group A — npm audit gate
@@ -97,14 +88,11 @@ describe('Security: Dependency Audit', function() {
     });
 
     it('should report zero High vulnerabilities (excluding documented residual-risk packages)', function() {
-      // SECURITY: Filtered count excludes entries whose top-level key is in
-      // EXEMPT_PACKAGES (defined at the suite scope above). The exemption
-      // mechanism is narrow, audit-trail-friendly, and documented at the
-      // suite scope so future operators and auditors can immediately see
-      // which packages are intentionally exempted and why.
-      //
-      // Concrete current state: `marked` (Trinket fork) is the sole
-      // exempted package per AAP §0.10.5 R-02 / §0.4.1.
+      // SECURITY: EXEMPT_PACKAGES is now empty (post marked-migration);
+      // the filter mechanism is preserved so a future remediation pass can
+      // re-introduce documented residual-risk exemptions if needed without
+      // a structural change to this gate. The current expectation is zero
+      // High findings unconditionally.
       var nonExemptHighCount = countHighOrCriticalExcludingExempt('high');
       nonExemptHighCount.should.equal(0);
     });
