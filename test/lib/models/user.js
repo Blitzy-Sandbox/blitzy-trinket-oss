@@ -1,7 +1,15 @@
 var sinon    = require('sinon'),
     should   = require('chai').should(),
     defaults = require('../../helpers/defaults'),
-    db       = require('../../helpers/db');
+    db       = require('../../helpers/db'),
+    // SECURITY: explicit User model require (QA-FINAL-2 Issue #7).
+    // The User binding is otherwise only set as an implicit global in
+    // app.js's async init() at line 374, which runs after Mocha invokes
+    // each describe-block callback. Requiring directly here means
+    // `User.hooks`, `User.objectMethods`, `User.findByLogin`, and the
+    // `new User(...)` constructor all resolve at file-load time without
+    // depending on global pollution.
+    User     = require('../../../lib/models/user');
 
 describe('User model', function(){
   before(db.reset);

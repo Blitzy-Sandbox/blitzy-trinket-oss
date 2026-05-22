@@ -4,7 +4,17 @@ var _        = require('underscore'),
     defaults = require('../../helpers/defaults'),
     db       = require('../../helpers/db'),
     ownable     = require('../../../lib/models/plugins/ownable'),
-    ObjectId    = require('mongoose').Types.ObjectId;
+    ObjectId    = require('mongoose').Types.ObjectId,
+    // SECURITY: explicit model requires (QA-FINAL-2 Issue #8).
+    // Course / Lesson / Material / User are otherwise only set as implicit
+    // globals in app.js's async init() at lines 374-381, which runs after
+    // Mocha invokes each describe-block callback. Requiring directly here
+    // means `Course.plugins`, `new User(...)`, `new Material(...)`, and
+    // `new Lesson(...)` all resolve without depending on global pollution.
+    Course   = require('../../../lib/models/course'),
+    Lesson   = require('../../../lib/models/lesson'),
+    Material = require('../../../lib/models/material'),
+    User     = require('../../../lib/models/user');
 
 describe('Course model', function(){
   describe('plugins', function() {

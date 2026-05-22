@@ -64,6 +64,28 @@ const init = async () => {
     console.error('='.repeat(70) + '\n');
     process.exit(1);
   }
+
+  // SECURITY: enforce minimum-entropy on JWT signing secret (CVE-2022-23540 defense-in-depth)
+  // When email is enabled (mail.from is set), the email-share token flow signs JWTs with
+  // config.app.mail.secret. A short or missing secret weakens the algorithm-pin defense
+  // against algorithm-confusion attacks. Per the graceful-degradation contract, we WARN
+  // (not exit) so that operators with email intentionally disabled can still boot; the
+  // controllers in lib/controllers/trinket.js will fail closed when issuing tokens with
+  // a too-short secret.
+  if (config.app && config.app.mail && config.app.mail.from) {
+    const mailSecret = config.app.mail.secret;
+    if (!mailSecret || mailSecret.length < 32) {
+      console.warn('\n' + '='.repeat(70));
+      console.warn('WARNING: JWT email-share secret (config.app.mail.secret) is missing or shorter than 32 characters.');
+      console.warn('Email-share token issuance will fail closed. Set a 32+ character secret in config/local.yaml:');
+      console.warn('');
+      console.warn('  app:');
+      console.warn('    mail:');
+      console.warn("      secret: 'your-secure-jwt-secret-at-least-32-characters'");
+      console.warn('='.repeat(70) + '\n');
+    }
+  }
+
   // Create server with Hapi 20+ configuration
   const server = Hapi.server({
     host: config.app.hostname || 'localhost',
@@ -153,6 +175,102 @@ const init = async () => {
     const response = request.response;
     const addXFrame = config.app.xframeDeny && config.app.xframeDeny.indexOf(request.url.pathname) >= 0;
 
+    // SECURITY: defense-in-depth Content-Security-Policy.
+    //
+    // The CSP value below is the AAP §0.5.1 verbatim specification with TWO
+    // documented deviations:
+    //
+    //   (1) `frame-ancestors 'self'` is applied route-aware (only for routes
+    //       already in config.app.xframeDeny: '/', '/login', '/signup',
+    //       '/contact', '/educators') instead of globally as a strict reading
+    //       of §0.5.1 would prescribe.
+    //
+    //   (2) `script-src` is expanded to include `'unsafe-inline'` and
+    //       `https://ajax.googleapis.com`, and `style-src` is expanded to
+    //       include `https://cdnjs.cloudflare.com`. These additions are
+    //       required to keep the AngularJS 1.3.20 frontend functional per
+    //       §0.1.2 binding User Example "AngularJS 1.3.20 frontend
+    //       unchanged" and §0.8.3 explicit guidance "the proposed CSP
+    //       includes those sources explicitly" referring to "cdnjs
+    //       .cloudflare.com, googleapis.com, gstatic.com, google.com" used
+    //       by config/default.yaml's asset URLs.
+    //
+    // Rationale for deviation (1) — the AAP itself contains a contractual
+    // conflict between §0.5.1 prescriptive guidance (CSP value verbatim,
+    // including a global `frame-ancestors 'self'`) and the §0.1.2 binding
+    // User Example preservation requirement: "Socket.IO protocol contract
+    // between browser embeds and nginx gateway unchanged — consumed by
+    // deployed embeds in third-party iframes." A globally-applied
+    // `frame-ancestors 'self'` would block ALL third-party iframe framing
+    // of Trinket embed routes (/embed/*, /assignment-embed/*, and the
+    // trinket player routes /python, /skulpt, /vpython, /webvpython, /r,
+    // etc.), destroying the entire deployed-embed product surface that
+    // §0.1.2 explicitly protects.
+    //
+    // Rationale for deviation (2) — the AAP §0.5.1 literal CSP value
+    // omitted three sources required by the existing AngularJS 1.3.20
+    // frontend:
+    //
+    //   (a) `https://ajax.googleapis.com` — config/default.yaml jsbody
+    //       references angular-route.min.js and angular-aria.min.js from
+    //       this CDN. Without this entry, AngularJS routing and ARIA
+    //       directives fail to load, breaking every Angular-driven view
+    //       (dashboard course list, trinket editor, course/lesson forms).
+    //
+    //   (b) `'unsafe-inline'` for script-src — the per-language Trinket
+    //       view templates (lib/views/trinket/python/base.html,
+    //       lib/views/trinket/blocks/blocks.html, lib/views/trinket/R/R.html,
+    //       lib/views/trinket/glowscript/glowscript.html, and others)
+    //       contain inline <script> blocks that bootstrap the page chrome
+    //       (Collapse/Expand handlers, dynamic page sizing, jQuery-based
+    //       DOM ready hooks). Without `'unsafe-inline'`, these inline
+    //       scripts are blocked. AngularJS 1.3.20's CSP-strict mode
+    //       (`ng-csp` directive) is not enabled in the existing frontend
+    //       and enabling it would constitute a frontend change forbidden
+    //       by §0.1.2 binding User Example.
+    //
+    //   (c) `https://cdnjs.cloudflare.com` for style-src —
+    //       config/default.yaml css references font-awesome, video.js, and
+    //       highlight.js stylesheets from this CDN. Without this entry,
+    //       icons render as text-fallback. The existing script-src already
+    //       has cdnjs.cloudflare.com; style-src was missed in §0.5.1.
+    //
+    // Resolution — §0.1.2 User Examples are documented in the AAP as
+    // "Preservation requirements (verbatim from user instructions,
+    // preserved as User Examples)" and are therefore binding constraints
+    // that take precedence over §0.5.1 prescriptive guidance when the two
+    // conflict. AAP §0.8.3 explicitly states "The CSP `script-src`
+    // directive must include the existing CDN sources (cdnjs.cloudflare
+    // .com, googleapis.com, gstatic.com, google.com) used by
+    // config/default.yaml's asset URLs. A header that is too restrictive
+    // would break the AngularJS frontend; the proposed CSP includes those
+    // sources explicitly." The expansions in (2) bring the CSP into
+    // alignment with §0.8.3 explicit guidance and §0.1.2 binding User
+    // Example. All directives still preserve their security intent
+    // (default-src remains 'self', script-src still requires explicit
+    // host whitelisting for external scripts, etc.).
+    //
+    // The route-aware emission preserves the embed contract while still
+    // applying `frame-ancestors 'self'` (clickjacking defense) to the same
+    // routes that already receive `X-Frame-Options: deny` (i.e., the
+    // auth/marketing pages where embed framing is not a product
+    // requirement).
+    // SECURITY: font-src deviation (3) — `font-src` is expanded to include
+    // `https://cdnjs.cloudflare.com` (Font Awesome 4.7.0 webfonts hosted at
+    // cdnjs are referenced from font-awesome.min.css via @font-face URLs)
+    // and `data:` (video.js 5.20.4 ships inline base64-encoded font data
+    // via `data:application/font-woff` and `data:application/x-font-ttf`
+    // URIs in video-js.min.css). Without these, Font Awesome icons render
+    // as missing-glyph boxes throughout the AngularJS frontend (every
+    // header link, every navigation chip, every editor tab — degrading
+    // visual identity well below the §0.1.2 binding User Example
+    // "AngularJS 1.3.20 frontend unchanged" baseline). The `data:`
+    // permission is scoped to `font-src` only (NOT to `script-src`), so
+    // it does not weaken script-execution protections; it permits font
+    // resources only.
+    const cspBase = "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.google.com https://www.gstatic.com https://cdnjs.cloudflare.com https://ajax.googleapis.com; frame-src 'self' https://www.google.com; connect-src 'self' wss: https:";
+    const csp = addXFrame ? (cspBase + "; frame-ancestors 'self'") : cspBase;
+
     if (response.isBoom) {
       const statusCode = response.output.statusCode;
 
@@ -166,16 +284,45 @@ const init = async () => {
       const wantsHtml = acceptHeader.includes('text/html') ||
                         (!acceptHeader.includes('application/json') && !isApiRequest);
 
+      // SECURITY: attach defense-in-depth headers to the rendered HTML error view /
+      // redirect response. This is part of the same vulnerability class addressed by
+      // AAP §0.5.1 (defense-in-depth response header gap closure for
+      // X-Content-Type-Options, Referrer-Policy, and Content-Security-Policy).
+      // Without this adapter, HTML browser-style 401/403/404/500 responses bypass the
+      // security-header injection below, because h.view().code() and
+      // h.redirect().takeover() short-circuit the function and the resulting response
+      // object does not re-enter this onPreResponse extension — leaving error pages
+      // without the AAP-mandated security headers. Adding this adapter completes the
+      // §0.5.1 mandate across all response paths, including HTML error renderings.
+      // (Pre-existing Cache-Control / Pragma / Expires / X-Frame-Options gaps on
+      // these paths are out of scope for this remediation per the Minimal Change
+      // Clause and are preserved as-is.)
+      const attachSecurity = (resp) => resp
+        .header('X-Content-Type-Options', 'nosniff')
+        .header('Referrer-Policy', 'strict-origin-when-cross-origin')
+        .header('Content-Security-Policy', csp);
+
+      // SECURITY: redirect 401s to /login for ALL non-explicit-JSON requests
+      // (matching the legacy Hapi 4 behaviour where the failAction on the
+      // default auth strategy redirected unauthenticated users to /login
+      // regardless of whether the request path was under /api/). Tests in
+      // test/lib/api/course.js (logged-out user describe block) exercise
+      // this contract: POST /api/courses without a session cookie is
+      // expected to redirect to /login (302), not return 401. Explicit
+      // API clients (those that send `Accept: application/json`) still
+      // receive a structured 401 — only browser-style requests are
+      // redirected.
+      if (statusCode === 401 && !acceptHeader.includes('application/json')) {
+        return attachSecurity(h.redirect('/login')).takeover();
+      }
+
       if (!isApiRequest && wantsHtml) {
-        if (statusCode === 401) {
-          // Redirect to login for unauthorized page requests
-          return h.redirect('/login').takeover();
-        } else if (statusCode === 404) {
-          return h.view('404.html').code(404);
+        if (statusCode === 404) {
+          return attachSecurity(h.view('404.html').code(404));
         } else if (statusCode === 403) {
-          return h.view('50x.html').code(403);
+          return attachSecurity(h.view('50x.html').code(403));
         } else if (statusCode >= 500) {
-          return h.view('50x.html').code(statusCode);
+          return attachSecurity(h.view('50x.html').code(statusCode));
         }
       }
 
@@ -186,6 +333,11 @@ const init = async () => {
       if (addXFrame) {
         response.output.headers['X-Frame-Options'] = 'deny';
       }
+
+      // SECURITY: defense-in-depth response headers
+      response.output.headers['X-Content-Type-Options'] = 'nosniff';
+      response.output.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin';
+      response.output.headers['Content-Security-Policy'] = csp;
     }
     else if (response.header) {
       response.header('Cache-Control', cache_control);
@@ -195,6 +347,11 @@ const init = async () => {
       if (addXFrame) {
         response.header('X-Frame-Options', 'deny');
       }
+
+      // SECURITY: defense-in-depth response headers
+      response.header('X-Content-Type-Options', 'nosniff');
+      response.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+      response.header('Content-Security-Policy', csp);
     }
 
     return h.continue;
@@ -309,6 +466,30 @@ const init = async () => {
     log.info('Server started on port: ' + server.info.port);
 
     detectLeaks();
+  } else {
+    // SECURITY: in non-listener boot modes (e.g. NODE_ENV=test where
+    // config.app.start === false, set in config/test.yaml line 3), the HTTP
+    // listener is intentionally suppressed so suites can drive the server
+    // through `server.inject()` / supertest without binding a port. However,
+    // suppressing `server.start()` also suppresses the cache provider boot
+    // sequence — Hapi only invokes the catbox engine's `start()` lifecycle
+    // hook from inside `server.start()` (or `server.initialize()`).
+    //
+    // Without that hook, our `lib/util/catbox-mongoose.js` engine never sets
+    // its `isConnected` flag, so `engine.isReady()` returns false. The first
+    // session-touching request then trips
+    // `node_modules/@hapi/catbox/lib/client.js:103` (`if (!this.isReady())
+    // throw Boom.internal('Disconnected')`) inside `Yar.commit` (yar's
+    // onPreResponse hook), surfacing as a 500 Internal Server Error on every
+    // route that mutates the session — registration, login, logout, course
+    // CRUD, profile updates, password reset, and trinket creation.
+    //
+    // `server.initialize()` runs the same boot sequence as `server.start()`
+    // minus the listener bind. Calling it here preserves the AAP §0.1.2
+    // session architecture contract (`@hapi/yar` + `catbox-mongoose` sliding
+    // 24-hour TTL) while keeping the existing `start: false` semantics for
+    // tests and embedded boot modes (QA-FINAL-2 Issue #6 cascade).
+    await server.initialize();
   }
 
   return server;

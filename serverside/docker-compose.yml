@@ -24,15 +24,22 @@ services:
       - "8010"
     volumes:
       - python-sessions:/tmp/sessions
-    # Production security options (uncomment for hardened deployment):
-    # mem_limit: 500m
-    # mem_reservation: 375m
-    # cpus: 1.0
-    # cpu_shares: 512
-    # pids_limit: 50
-    # read_only: true
-    # tmpfs:
-    #   - /tmp:size=100m
+    # SECURITY: hardened adversarial code-execution zone
+    # SECURITY: PM2_HOME redirected to writable tmpfs because read_only:true
+    # would otherwise prevent pm2-runtime from creating its $HOME/.pm2
+    # working directory and server.js would never start. QA finding #1.
+    environment:
+      - PM2_HOME=/tmp/.pm2
+    mem_limit: 500m
+    mem_reservation: 375m
+    pids_limit: 50
+    read_only: true
+    tmpfs:
+      - /tmp:size=100m
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
 
   python3-manager:
     build: ./python/manager
@@ -55,12 +62,22 @@ services:
       - "8010"
     volumes:
       - java-sessions:/tmp/sessions
-    # Production security options (uncomment for hardened deployment):
-    # mem_limit: 500m
-    # mem_reservation: 375m
-    # cpus: 1.0
-    # cpu_shares: 512
-    # pids_limit: 50
+    # SECURITY: hardened adversarial code-execution zone
+    # SECURITY: PM2_HOME redirected to writable tmpfs because read_only:true
+    # would otherwise prevent pm2-runtime from creating its $HOME/.pm2
+    # working directory and server.js would never start. QA finding #1.
+    environment:
+      - PM2_HOME=/tmp/.pm2
+    mem_limit: 500m
+    mem_reservation: 375m
+    pids_limit: 50
+    read_only: true
+    tmpfs:
+      - /tmp:size=100m
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
 
   java-manager:
     build: ./java/manager
@@ -82,12 +99,22 @@ services:
       - "8010"
     volumes:
       - r-sessions:/tmp/sessions
-    # Production security options (uncomment for hardened deployment):
-    # mem_limit: 500m
-    # mem_reservation: 375m
-    # cpus: 1.0
-    # cpu_shares: 512
-    # pids_limit: 50
+    # SECURITY: hardened adversarial code-execution zone
+    # SECURITY: PM2_HOME redirected to writable tmpfs because read_only:true
+    # would otherwise prevent pm2-runtime from creating its $HOME/.pm2
+    # working directory and server.js would never start. QA finding #1.
+    environment:
+      - PM2_HOME=/tmp/.pm2
+    mem_limit: 500m
+    mem_reservation: 375m
+    pids_limit: 50
+    read_only: true
+    tmpfs:
+      - /tmp:size=100m
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
 
   r-manager:
     build: ./r/manager
@@ -110,10 +137,42 @@ services:
       - "6080"   # noVNC WebSocket
     volumes:
       - pygame-sessions:/tmp/pygame
-    # Production security options (uncomment for hardened deployment):
-    # mem_limit: 1g
-    # mem_reservation: 750m
-    # cpus: 2.0
+    # SECURITY: hardened adversarial code-execution zone
+    mem_limit: 500m
+    mem_reservation: 375m
+    pids_limit: 50
+    read_only: true
+    # SECURITY: additional tmpfs mounts because supervisord writes its main
+    # log to /var/log/supervisor/supervisord.log and tracks its pidfile in
+    # /var/run/. With read_only:true and no writable mount at these paths,
+    # supervisord crashes on startup with "OSError: [Errno 30] Read-only
+    # file system" and the container exits within 1 second. We mount
+    # /var/log/supervisor (not /var/log) directly so the tmpfs lands on the
+    # specific directory supervisor needs without hiding the rest of /var/log.
+    # QA finding #2.
+    tmpfs:
+      - /tmp:size=100m
+      - /var/log/supervisor:size=50m
+      - /var/run:size=10m
+    cap_drop:
+      - ALL
+    # SECURITY: SETUID and SETGID are the only two Linux capabilities added
+    # back to the otherwise-stripped capability set, because supervisord runs
+    # as root inside this container (Dockerfile has no USER directive) and
+    # then immediately drops privileges to the unprivileged `trinket` user
+    # via the `user=trinket` directive in xvnc.conf and shell.conf. Without
+    # these two capabilities, supervisor fails with "couldn't setuid to 1000:
+    # Could not set groups of effective user", child processes never spawn,
+    # and AAP completion criterion #16 ("Adversarial-zone containers still
+    # execute learner code correctly") fails for pygame. NoNewPrivs:true is
+    # preserved, so these capabilities cannot be used to ESCALATE privileges
+    # — only to drop them, which is exactly what supervisor needs to do.
+    # QA finding #2 (full resolution).
+    cap_add:
+      - SETUID
+      - SETGID
+    security_opt:
+      - "no-new-privileges:true"
 
   pygame-manager:
     build: ./pygame/manager

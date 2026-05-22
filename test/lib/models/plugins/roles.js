@@ -2,7 +2,14 @@ var _        = require('underscore'),
     sinon    = require('sinon'),
     should   = require('chai').should(),
     defaults = require('../../../helpers/defaults'),
-    plugin   = require('../../../../lib/models/plugins/roles');
+    plugin   = require('../../../../lib/models/plugins/roles'),
+    // SECURITY: explicit User model require (QA-FINAL-2 Issue #8).
+    // User is otherwise only set as an implicit global in app.js's async
+    // init() at line 374, which runs after Mocha invokes each describe-block
+    // callback. Requiring directly here means `new User(...)` and the
+    // user.hasRole / user.grant / user.revoke instance methods all resolve
+    // at test execution time without depending on global pollution.
+    User     = require('../../../../lib/models/user');
 
 describe('roles plugin', function() {
   describe('class methods', function() {

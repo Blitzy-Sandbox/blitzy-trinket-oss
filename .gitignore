@@ -24,6 +24,9 @@ config/production.json
 config/local.yaml
 config/local.yml
 config/local.json
+config/local-*.yaml
+config/local-*.yml
+config/local-*.json
 config/migration.json
 config/migrationDb.json
 

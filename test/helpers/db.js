@@ -6,7 +6,16 @@ var _            = require('underscore'),
 
 function DB() {
   this._isConnected = false;
-  _.bindAll(this, 'ensureConnection', 'reset');
+  // SECURITY: use native Function.prototype.bind instead of _.bindAll
+  // (QA-FINAL-2 Issue #6 / Issue #1 cascade). underscore@1.13.x's
+  // bindAll wraps the bound function in an arrow function whose
+  // `.length` is always 0, which causes Mocha 3.x to treat the
+  // bound function as synchronous (no `done` argument is passed).
+  // Native bind preserves the source function's `.length`, so Mocha
+  // correctly recognises `before(db.reset)` and `beforeEach(db.ensureConnection)`
+  // as async hooks that take a `done` callback.
+  this.ensureConnection = this.ensureConnection.bind(this);
+  this.reset            = this.reset.bind(this);
 }
 
 _.extend(DB.prototype, {
